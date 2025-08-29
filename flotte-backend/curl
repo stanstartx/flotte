@@ -1,0 +1,8 @@
+   curl -H "Authorization: Bearer TON_TOKEN_ICI" http://127.0.0.1:8000/api/conducteur/missions/?conducteur=22
+
+
+
+curl -X POST http://127.0.0.1:8000/api/token/ \
+    -H "Content-Type: application/json" \
+    -d '{"username": "TON_USERNAME", "password": "TON_PASSWORD"}'
+

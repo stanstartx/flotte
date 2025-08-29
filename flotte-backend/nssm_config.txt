@@ -1,0 +1,16 @@
+# Configuration NSSM pour le service Django
+# À utiliser avec la commande: C:\Tools\nssm\nssm.exe install django_api
+
+# Application Path: C:\Sites\api\current\venv\Scripts\waitress-serve.exe
+# Startup directory: C:\Sites\api\current
+# Arguments: --listen=127.0.0.1:8000 core.wsgi:application
+
+# Variables d'environnement à ajouter:
+# DJANGO_SETTINGS_MODULE=core.settings
+
+# Commandes pour configurer le service:
+# C:\Tools\nssm\nssm.exe set django_api AppDirectory C:\Sites\api\current
+# C:\Tools\nssm\nssm.exe set django_api AppParameters --listen=127.0.0.1:8000 core.wsgi:application
+# C:\Tools\nssm\nssm.exe set django_api AppEnvironmentExtra DJANGO_SETTINGS_MODULE=core.settings
+
+

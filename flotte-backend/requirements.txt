@@ -1,0 +1,14 @@
+Django>=5.2.1
+djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.1
+django-cors-headers>=4.3.1
+Pillow>=10.2.0
+python-dotenv>=1.0.1
+pytest>=8.0.0
+pytest-django>=4.8.0
+factory-boy>=3.3.0
+channels>=4.0.0
+channels-redis>=4.2.0
+daphne>=4.1.0
+waitress>=3.0.0
+whitenoise>=6.6.0 

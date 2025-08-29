@@ -1,0 +1,37 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.melos_tool/
+.pub-cache/
+build/
+android/local.properties
+ios/Flutter/ephemeral/
+macos/Flutter/ephemeral/
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+*.iml
+*.lock
+*.log
+
+# Ignorer les binaires
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDEs
+.idea/
+.vscode/
+
+# Django
+*.pyc
+__pycache__/
+db.sqlite3
+
+# Ne PAS ignorer tes fichiers Flutter/Dart réels
+!lib/
+!lib/**/*.dart
+
+.env
