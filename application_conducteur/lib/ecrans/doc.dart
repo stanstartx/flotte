@@ -1,27 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
-import 'package:url_launcher/url_launcher.dart';
-
-enum DocumentType { conducteur, vehicule }
-
-class DocumentModel {
-  final String titre;
-  final String dateExpiration;
-  final String statut;
-  final String pdfUrl;
-  final DocumentType type;
-  final String? vehiculeNom;
-
-  DocumentModel({
-    required this.titre,
-    required this.dateExpiration,
-    required this.statut,
-    required this.pdfUrl,
-    required this.type,
-    this.vehiculeNom,
-  });
-}
+import 'package:file_picker/file_picker.dart';
 
 class DocumentsPage extends StatefulWidget {
   const DocumentsPage({super.key});
@@ -30,765 +11,410 @@ class DocumentsPage extends StatefulWidget {
   State<DocumentsPage> createState() => _DocumentsPageState();
 }
 
-class _DocumentsPageState extends State<DocumentsPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _animationController;
+class _DocumentsPageState extends State<DocumentsPage> {
+  final Color primaryColor = const Color(0xFF1C6DD0);
+  final Color secondaryColor = const Color(0xFF4F9CF9);
+  final Color textPrimary = const Color(0xFF1A202C);
 
-  final List<DocumentModel> allDocuments = [
-    DocumentModel(
-      titre: 'Permis de conduire',
-      dateExpiration: '22/12/2026',
-      statut: 'Valide',
-      pdfUrl: 'https://groupe-laroche.com/docs/permis.pdf',
-      type: DocumentType.conducteur,
-    ),
-    DocumentModel(
-      titre: 'Assurance Santé',
-      dateExpiration: '30/06/2025',
-      statut: 'Valide',
-      pdfUrl: 'https://groupe-laroche.com/docs/sante.pdf',
-      type: DocumentType.conducteur,
-    ),
-    DocumentModel(
-      titre: 'Carte Grise',
-      dateExpiration: '20/11/2025',
-      statut: 'Bientôt expiré',
-      pdfUrl: 'https://groupe-laroche.com/docs/carte_grise.pdf',
-      type: DocumentType.vehicule,
-      vehiculeNom: 'Toyota RAV4 - AB123CD',
-    ),
-    DocumentModel(
-      titre: 'Assurance',
-      dateExpiration: '15/04/2024',
-      statut: 'Expiré',
-      pdfUrl: 'https://groupe-laroche.com/docs/assurance.pdf',
-      type: DocumentType.vehicule,
-      vehiculeNom: 'Toyota RAV4 - AB123CD',
-    ),
-    DocumentModel(
-      titre: 'Carte Grise',
-      dateExpiration: '01/10/2026',
-      statut: 'Valide',
-      pdfUrl: 'https://groupe-laroche.com/docs/cg_voiture2.pdf',
-      type: DocumentType.vehicule,
-      vehiculeNom: 'Peugeot 208 - CD456EF',
-    ),
+  final List<Map<String, dynamic>> conducteurDocs = [
+    {
+      "titre": "Permis B",
+      "etat": "Valide",
+      "expiration": "12/2026",
+      "file": null,
+    },
+    {
+      "titre": "Carte d'identité",
+      "etat": "Bientôt expiré",
+      "expiration": "03/2026",
+      "file": null,
+    },
+    {
+      "titre": "Certificat médical",
+      "etat": "Expiré",
+      "expiration": "01/2024",
+      "file": null,
+    },
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-    _animationController.forward();
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  Map<String, List<DocumentModel>> _groupDocumentsByVehicule(
-    List<DocumentModel> docs,
-  ) {
-    final Map<String, List<DocumentModel>> map = {};
-    for (var doc in docs) {
-      final nom = doc.vehiculeNom ?? 'Véhicule inconnu';
-      map.putIfAbsent(nom, () => []);
-      map[nom]!.add(doc);
-    }
-    return map;
-  }
-
-  void _openAddDocumentDialog() {
-    final _formKey = GlobalKey<FormState>();
-    String titre = '';
-    String dateExpiration = '';
-    String statut = 'Valide';
-    String pdfUrl = '';
-    DocumentType type = DocumentType.conducteur;
-    String? vehiculeNom;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: StatefulBuilder(
-              builder: (context, setStateDialog) {
-                return SingleChildScrollView(
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Ajouter un document',
-                          style: GoogleFonts.poppins(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.teal.shade700,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        TextFormField(
-                          decoration: const InputDecoration(
-                            labelText: 'Titre',
-                            floatingLabelBehavior: FloatingLabelBehavior.auto,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(12),
-                              ),
-                            ),
-                          ),
-                          validator:
-                              (value) =>
-                                  value == null || value.isEmpty
-                                      ? 'Champ requis'
-                                      : null,
-                          onChanged: (value) => titre = value,
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          decoration: const InputDecoration(
-                            labelText: 'Date d\'expiration (jj/mm/aaaa)',
-                            floatingLabelBehavior: FloatingLabelBehavior.auto,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(12),
-                              ),
-                            ),
-                          ),
-                          validator:
-                              (value) =>
-                                  value == null || value.isEmpty
-                                      ? 'Champ requis'
-                                      : null,
-                          onChanged: (value) => dateExpiration = value,
-                          keyboardType: TextInputType.datetime,
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          decoration: const InputDecoration(
-                            labelText: 'Statut',
-                            floatingLabelBehavior: FloatingLabelBehavior.auto,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(12),
-                              ),
-                            ),
-                          ),
-                          value: statut,
-                          items:
-                              ['Valide', 'Bientôt expiré', 'Expiré']
-                                  .map(
-                                    (e) => DropdownMenuItem(
-                                      value: e,
-                                      child: Text(e),
-                                    ),
-                                  )
-                                  .toList(),
-                          onChanged: (value) {
-                            if (value != null)
-                              setStateDialog(() => statut = value);
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          decoration: const InputDecoration(
-                            labelText: 'URL PDF',
-                            floatingLabelBehavior: FloatingLabelBehavior.auto,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(12),
-                              ),
-                            ),
-                          ),
-                          validator:
-                              (value) =>
-                                  value == null || value.isEmpty
-                                      ? 'Champ requis'
-                                      : null,
-                          onChanged: (value) => pdfUrl = value,
-                          keyboardType: TextInputType.url,
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<DocumentType>(
-                          decoration: const InputDecoration(
-                            labelText: 'Type de document',
-                            floatingLabelBehavior: FloatingLabelBehavior.auto,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(12),
-                              ),
-                            ),
-                          ),
-                          value: type,
-                          items:
-                              DocumentType.values
-                                  .map(
-                                    (e) => DropdownMenuItem(
-                                      value: e,
-                                      child: Text(
-                                        e == DocumentType.conducteur
-                                            ? 'Conducteur'
-                                            : 'Véhicule',
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                          onChanged: (value) {
-                            if (value != null)
-                              setStateDialog(() => type = value);
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        if (type == DocumentType.vehicule)
-                          TextFormField(
-                            decoration: const InputDecoration(
-                              labelText: 'Nom du véhicule',
-                              floatingLabelBehavior: FloatingLabelBehavior.auto,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.all(
-                                  Radius.circular(12),
-                                ),
-                              ),
-                            ),
-                            validator: (value) {
-                              if (type == DocumentType.vehicule &&
-                                  (value == null || value.isEmpty)) {
-                                return 'Champ requis pour véhicule';
-                              }
-                              return null;
-                            },
-                            onChanged: (value) => vehiculeNom = value,
-                          ),
-                        if (type == DocumentType.vehicule)
-                          const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.grey.shade700,
-                                textStyle: GoogleFonts.poppins(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: const Text('Annuler'),
-                            ),
-                            const SizedBox(width: 12),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal.shade600,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
-                                  vertical: 14,
-                                ),
-                                textStyle: GoogleFonts.poppins(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              onPressed: () {
-                                if (_formKey.currentState?.validate() ??
-                                    false) {
-                                  setState(() {
-                                    allDocuments.add(
-                                      DocumentModel(
-                                        titre: titre,
-                                        dateExpiration: dateExpiration,
-                                        statut: statut,
-                                        pdfUrl: pdfUrl,
-                                        type: type,
-                                        vehiculeNom: vehiculeNom,
-                                      ),
-                                    );
-                                  });
-                                  Navigator.of(context).pop();
-                                }
-                              },
-                              child: const Text('Ajouter'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 700;
-    final conducteurDocs =
-        allDocuments.where((d) => d.type == DocumentType.conducteur).toList();
-    final vehiculeDocs =
-        allDocuments.where((d) => d.type == DocumentType.vehicule).toList();
-    final groupedVehicules = _groupDocumentsByVehicule(vehiculeDocs);
+    bool isMobile = MediaQuery.of(context).size.width < 700;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFD),
+      backgroundColor: Colors.white,
       drawer: isMobile ? const Menu() : null,
-      body: SafeArea(
-        child: Row(
-          children: [
-            if (!isMobile) const Menu(),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  vertical: 28,
-                  horizontal: isMobile ? 16 : 32,
+      appBar:
+          isMobile
+              ? AppBar(
+                backgroundColor: Colors.white,
+                elevation: 0,
+                iconTheme: IconThemeData(color: primaryColor),
+                title: Text(
+                  "Documents",
+                  style: GoogleFonts.poppins(
+                    color: textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 22,
+                  ),
                 ),
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
+                centerTitle: false,
+              )
+              : null,
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start, // 🔥 contenu en haut
+        children: [
+          if (!isMobile) const Menu(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 16 : 32,
+                vertical: isMobile ? 20 : 40,
+              ),
+              child: Align(
+                alignment: Alignment.topCenter, // 🔥 centré horizontalement
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 1000),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Header avec bouton "Ajouter un document"
-                      isMobile
-                          ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Builder(
-                                    builder: (context) {
-                                      return IconButton(
-                                        icon: const Icon(
-                                          Icons.menu_rounded,
-                                          color: Colors.teal,
-                                          size: 30,
-                                        ),
-                                        onPressed: () {
-                                          Scaffold.of(context).openDrawer();
-                                        },
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(width: 10),
-                                  const Icon(
-                                    Icons.folder_open_rounded,
-                                    size: 30,
-                                    color: Colors.teal,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      'Mes documents',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
-                                        color: const Color(0xFF0B1D34),
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
+                      if (!isMobile)
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.description,
+                              size: 32,
+                              color: primaryColor,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              "Documents",
+                              style: GoogleFonts.poppins(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w600,
+                                color: textPrimary,
                               ),
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton.icon(
-                                  onPressed: _openAddDocumentDialog,
-                                  icon: Icon(
-                                    Icons.add_circle_outline_rounded,
-                                    color: Colors.teal.shade50,
-                                    size: 24,
-                                  ),
-                                  label: Text(
-                                    'Ajouter un document',
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.teal.shade700,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 16,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(28),
-                                    ),
-                                    elevation: 5,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 36),
-                            ],
-                          )
-                          : Row(
-                            children: [
-                              const Icon(
-                                Icons.folder_open_rounded,
-                                size: 36,
-                                color: Colors.teal,
-                              ),
-                              const SizedBox(width: 14),
-                              Text(
-                                'Mes documents',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B1D34),
-                                ),
-                              ),
-                              const Spacer(),
-                              InkWell(
-                                onTap: _openAddDocumentDialog,
-                                borderRadius: BorderRadius.circular(28),
-                                hoverColor: Colors.teal.withOpacity(0.12),
-                                child: Ink(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 14,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.teal.shade700.withOpacity(
-                                      0.15,
-                                    ),
-                                    borderRadius: BorderRadius.circular(28),
-                                    border: Border.all(
-                                      color: Colors.teal.shade700.withOpacity(
-                                        0.35,
-                                      ),
-                                      width: 1.3,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.teal.shade300.withOpacity(
-                                          0.3,
-                                        ),
-                                        blurRadius: 18,
-                                        spreadRadius: 1,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.add_circle_outline_rounded,
-                                        color: Colors.teal.shade800,
-                                        size: 24,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Ajouter un document',
-                                        style: GoogleFonts.poppins(
-                                          color: Colors.teal.shade900,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 15,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
+                          ],
+                        ),
+                      if (!isMobile) const SizedBox(height: 16),
+
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _showAddDocumentDialog(context),
+                          icon: const Icon(Icons.add),
+                          label: const Text("Ajouter un document"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
                           ),
-                      const SizedBox(height: 20),
-                      // Section Conducteur
-                      Text(
-                        'Documents du conducteur',
-                        style: GoogleFonts.poppins(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.blueGrey.shade900,
                         ),
                       ),
                       const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 22,
-                        runSpacing: 22,
-                        direction: isMobile ? Axis.vertical : Axis.horizontal,
+
+                      // Liste des documents
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children:
                             conducteurDocs.map((doc) {
-                              return SizedBox(
-                                width: isMobile ? double.infinity : 280,
-                                child: FadeTransition(
-                                  opacity: CurvedAnimation(
-                                    parent: _animationController,
-                                    curve: Curves.easeOut,
+                              return GestureDetector(
+                                onTap: () => _showDocumentDetails(context, doc),
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 20),
+                                  width: isMobile ? double.infinity : 700,
+                                  child: _DocumentCard(
+                                    titre: doc["titre"],
+                                    etat: doc["etat"],
+                                    expiration: doc["expiration"],
+                                    couleurStatut:
+                                        doc["etat"] == "Valide"
+                                            ? primaryColor
+                                            : (doc["etat"] == "Expiré"
+                                                ? Colors.redAccent
+                                                : Colors.orangeAccent),
                                   ),
-                                  child: _PremiumDocumentCard(document: doc),
                                 ),
                               );
                             }).toList(),
                       ),
-                      const SizedBox(height: 50),
-                      // Section Véhicules
-                      Text(
-                        'Documents des véhicules assignés',
-                        style: GoogleFonts.poppins(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.blueGrey.shade900,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      ...groupedVehicules.entries.map((entry) {
-                        final vehiculeNom = entry.key;
-                        final docs = entry.value;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 34),
-                          padding: const EdgeInsets.all(26),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF2F855A).withOpacity(0.08),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                vehiculeNom,
-                                style: GoogleFonts.poppins(
-                                  fontSize: isMobile ? 18 : 19,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.teal.shade900,
-                                ),
-                              ),
-                              const SizedBox(height: 26),
-                              Wrap(
-                                spacing: 24,
-                                runSpacing: 24,
-                                direction:
-                                    isMobile ? Axis.vertical : Axis.horizontal,
-                                children:
-                                    docs.map((doc) {
-                                      return SizedBox(
-                                        width: isMobile ? double.infinity : 280,
-                                        child: FadeTransition(
-                                          opacity: CurvedAnimation(
-                                            parent: _animationController,
-                                            curve: Curves.easeOut,
-                                          ),
-                                          child: _PremiumDocumentCard(
-                                            document: doc,
-                                          ),
-                                        ),
-                                      );
-                                    }).toList(),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
                     ],
                   ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+
+  void _showDocumentDetails(BuildContext context, Map<String, dynamic> doc) {
+    final TextEditingController titreController = TextEditingController(
+      text: doc["titre"],
+    );
+    final TextEditingController expirationController = TextEditingController(
+      text: doc["expiration"],
+    );
+    String etat = doc["etat"];
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "Détails du document",
+                    style: GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: titreController,
+                    decoration: const InputDecoration(labelText: "Titre"),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: expirationController,
+                    decoration: const InputDecoration(
+                      labelText: "Date d'expiration",
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: etat,
+                    items:
+                        ["Valide", "Bientôt expiré", "Expiré"]
+                            .map(
+                              (e) => DropdownMenuItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
+                    onChanged: (val) {
+                      if (val != null) etat = val;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text("Fermer"),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            doc["titre"] = titreController.text;
+                            doc["expiration"] = expirationController.text;
+                            doc["etat"] = etat;
+                          });
+                          Navigator.of(context).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text("Enregistrer"),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  void _showAddDocumentDialog(BuildContext context) {
+    final TextEditingController titreController = TextEditingController();
+    final TextEditingController expirationController = TextEditingController();
+    String etat = "Valide";
+    File? selectedFile;
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "Ajouter un document",
+                    style: GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: titreController,
+                    decoration: const InputDecoration(
+                      labelText: "Titre du document",
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: expirationController,
+                    decoration: const InputDecoration(
+                      labelText: "Date d'expiration",
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: etat,
+                    items:
+                        ["Valide", "Bientôt expiré", "Expiré"]
+                            .map(
+                              (e) => DropdownMenuItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
+                    onChanged: (val) {
+                      if (val != null) etat = val;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      FilePickerResult? result =
+                          await FilePicker.platform.pickFiles();
+                      if (result != null) {
+                        selectedFile = File(result.files.single.path!);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              "${result.files.single.name} sélectionné",
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text("Téléverser un fichier"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: secondaryColor,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (titreController.text.isNotEmpty) {
+                        setState(() {
+                          conducteurDocs.add({
+                            "titre": titreController.text,
+                            "etat": etat,
+                            "expiration": expirationController.text,
+                            "file": selectedFile,
+                          });
+                        });
+                        Navigator.of(context).pop();
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text("Ajouter"),
+                  ),
+                ],
+              ),
+            ),
+          ),
     );
   }
 }
 
-class _PremiumDocumentCard extends StatefulWidget {
-  final DocumentModel document;
+class _DocumentCard extends StatelessWidget {
+  final String titre;
+  final String etat;
+  final String expiration;
+  final Color couleurStatut;
 
-  const _PremiumDocumentCard({required this.document});
-
-  @override
-  State<_PremiumDocumentCard> createState() => _PremiumDocumentCardState();
-}
-
-class _PremiumDocumentCardState extends State<_PremiumDocumentCard> {
-  bool _isHovered = false;
-
-  Color _statutColor(String statut) {
-    switch (statut) {
-      case 'Valide':
-        return Colors.green.shade700;
-      case 'Bientôt expiré':
-        return Colors.orange.shade700;
-      case 'Expiré':
-        return Colors.red.shade700;
-      default:
-        return Colors.grey.shade600;
-    }
-  }
-
-  IconData _statusIcon(String statut) {
-    switch (statut) {
-      case 'Valide':
-        return Icons.verified_rounded;
-      case 'Bientôt expiré':
-        return Icons.schedule_rounded;
-      case 'Expiré':
-        return Icons.error_outline_rounded;
-      default:
-        return Icons.help_outline_rounded;
-    }
-  }
-
-  Future<void> _openPdf(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Impossible d'ouvrir le document PDF")),
-        );
-      }
-    }
-  }
+  const _DocumentCard({
+    required this.titre,
+    required this.etat,
+    required this.expiration,
+    required this.couleurStatut,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final doc = widget.document;
-    final color = _statutColor(doc.statut);
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 350),
-        width: 280,
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          gradient:
-              _isHovered
-                  ? LinearGradient(
-                    colors: [
-                      Colors.teal.shade50,
-                      Colors.teal.shade100.withOpacity(0.4),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                  : null,
-          color: _isHovered ? null : Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow:
-              _isHovered
-                  ? [
-                    BoxShadow(
-                      color: Colors.teal.shade200.withOpacity(0.4),
-                      blurRadius: 20,
-                      spreadRadius: 3,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                  : [
-                    BoxShadow(
-                      color: const Color(0xFF2F855A).withOpacity(0.06),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-          border: Border.all(
-            color: _isHovered ? Colors.teal.shade300 : Colors.transparent,
-            width: 1.6,
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.3),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 14,
+            offset: Offset(0, 8),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              doc.titre,
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-                color: Colors.teal.shade900,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.insert_drive_file, color: couleurStatut, size: 36),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.calendar_today_rounded,
-                  size: 18,
-                  color: Colors.blueGrey.shade400,
-                ),
-                const SizedBox(width: 6),
                 Text(
-                  'Expiration : ${doc.dateExpiration}',
+                  titre,
                   style: GoogleFonts.poppins(
-                    color: Colors.blueGrey.shade600,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF2D3748),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "Expiration : $expiration",
+                  style: GoogleFonts.poppins(
                     fontSize: 14,
+                    color: Colors.grey.shade600,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(_statusIcon(doc.statut), color: color, size: 20),
-                const SizedBox(width: 6),
-                Text(
-                  doc.statut,
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    color: color,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
+          ),
+          Text(
+            etat,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              color: couleurStatut,
             ),
-            const SizedBox(height: 20),
-            Align(
-              alignment: Alignment.bottomRight,
-              child: TextButton.icon(
-                onPressed: () => _openPdf(doc.pdfUrl),
-                icon: const Icon(
-                  Icons.picture_as_pdf_rounded,
-                  color: Colors.teal,
-                ),
-                label: Text(
-                  'Voir PDF',
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.teal.shade700,
-                    fontSize: 15,
-                  ),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
-                  backgroundColor: Colors.teal.shade50,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 0,
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

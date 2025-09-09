@@ -15,136 +15,61 @@ class TableauDeBordAdmin extends StatefulWidget {
 }
 
 class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
-  List<dynamic> vehicules = [];
-  List<dynamic> conducteurs = [];
-  List<dynamic> maintenances = [];
-  List<dynamic> documents = [];
+  Map<String, dynamic> dashboardData = {};
   bool isLoading = true;
-
-  // Statistiques calculées
-  int vehiculesEnMaintenance = 0;
-  int documentsExpires = 0;
-  double coutEntretiensMois = 0.0;
-  Map<String, int> vehiculesParType = {};
-  int conducteursActifs = 0;
+  String? errorMessage;
 
   @override
   void initState() {
     super.initState();
-    fetchData();
+    fetchDashboardData();
   }
 
-  Future<void> fetchData() async {
+  Future<void> fetchDashboardData() async {
     try {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
 
       if (token == null) {
-        print('Token non trouvé');
-        setState(() => isLoading = false);
+        setState(() {
+          errorMessage = 'Token d\'authentification non trouvé';
+          isLoading = false;
+        });
         return;
       }
 
-      final headers = {'Authorization': 'Bearer $token'};
-
-      // Véhicules
-      final vehiculesResponse = await http.get(
-        Uri.parse('http://localhost:8000/api/vehicles/'),
-        headers: headers,
+      final response = await http.get(
+        Uri.parse('http://192.168.11.243:8000/api/dashboard/stats/'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
       );
-      if (vehiculesResponse.statusCode == 200) {
-        vehicules = json.decode(vehiculesResponse.body);
-        _calculerStatistiquesVehicules();
-      } else {
-        vehicules = [];
-      }
 
-      // Conducteurs
-      final conducteursResponse = await http.get(
-        Uri.parse('http://localhost:8000/api/drivers/'),
-        headers: headers,
-      );
-      if (conducteursResponse.statusCode == 200) {
-        final data = json.decode(conducteursResponse.body);
-        conducteurs = data is List ? data : (data['results'] ?? []);
-        _calculerStatistiquesConducteurs();
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          dashboardData = data;
+          isLoading = false;
+        });
       } else {
-        conducteurs = [];
-      }
-
-      // Maintenances
-      final maintenancesResponse = await http.get(
-        Uri.parse('http://localhost:8000/api/maintenances/'),
-        headers: headers,
-      );
-      if (maintenancesResponse.statusCode == 200) {
-        maintenances = json.decode(maintenancesResponse.body);
-        _calculerStatistiquesMaintenances();
-      } else {
-        maintenances = [];
-      }
-
-      // Documents
-      final documentsResponse = await http.get(
-        Uri.parse('http://localhost:8000/api/documents/'),
-        headers: headers,
-      );
-      if (documentsResponse.statusCode == 200) {
-        documents = json.decode(documentsResponse.body);
-        _calculerStatistiquesDocuments();
-      } else {
-        documents = [];
+        setState(() {
+          errorMessage = 'Erreur ${response.statusCode}: ${response.reasonPhrase}';
+          isLoading = false;
+        });
       }
     } catch (e) {
-      print("Erreur récupération données : $e");
-    } finally {
-      setState(() => isLoading = false);
+      setState(() {
+        errorMessage = 'Erreur de connexion: $e';
+        isLoading = false;
+      });
+      print("Erreur récupération données dashboard: $e");
     }
-  }
-
-  void _calculerStatistiquesVehicules() {
-    vehiculesParType.clear();
-    for (var vehicule in vehicules) {
-      String type = vehicule['type_vehicule'] ?? 'Non spécifié';
-      vehiculesParType[type] = (vehiculesParType[type] ?? 0) + 1;
-    }
-  }
-
-  void _calculerStatistiquesMaintenances() {
-    vehiculesEnMaintenance = maintenances
-        .where(
-            (m) => (m['statut'] ?? '').toString().toLowerCase() == 'en_cours')
-        .length;
-    DateTime debutMois = DateTime(DateTime.now().year, DateTime.now().month, 1);
-    coutEntretiensMois = maintenances.where((m) {
-      try {
-        return DateTime.parse(m['date']).isAfter(debutMois);
-      } catch (_) {
-        return false;
-      }
-    }).fold(
-        0.0,
-        (sum, m) =>
-            sum + ((m['cout'] is num) ? (m['cout'] as num).toDouble() : 0.0));
-  }
-
-  void _calculerStatistiquesDocuments() {
-    DateTime aujourdhui = DateTime.now();
-    documentsExpires = documents.where((d) {
-      try {
-        DateTime dateExpiration = DateTime.parse(d['date_expiration']);
-        return dateExpiration
-            .isBefore(aujourdhui.add(const Duration(days: 30)));
-      } catch (_) {
-        return false;
-      }
-    }).length;
-  }
-
-  void _calculerStatistiquesConducteurs() {
-    conducteursActifs = conducteurs
-        .where((c) => (c['statut'] ?? '').toString().toLowerCase() == 'actif')
-        .length;
   }
 
   @override
@@ -167,15 +92,54 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          "Tableau de bord - ADMINISTRATEUR",
-                          style: GoogleFonts.poppins(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF002244),
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Tableau de bord - ADMINISTRATEUR",
+                              style: GoogleFonts.poppins(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF002244),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: fetchDashboardData,
+                              icon: const Icon(Icons.refresh),
+                              tooltip: 'Actualiser',
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 24),
+
+                        // -------- Gestion des erreurs et chargement
+                        if (errorMessage != null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            margin: const EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              border: Border.all(color: Colors.red.shade200),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.error, color: Colors.red.shade600),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    errorMessage!,
+                                    style: TextStyle(color: Colors.red.shade700),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => setState(() => errorMessage = null),
+                                  icon: Icon(Icons.close, color: Colors.red.shade600),
+                                ),
+                              ],
+                            ),
+                          ),
 
                         // -------- KPIs
                         isLoading
@@ -187,30 +151,42 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                   StatCard(
                                     icon: Icons.directions_car,
                                     label: "Total véhicules",
-                                    value: vehicules.length.toString(),
+                                    value: (dashboardData['vehicles']?['total'] ?? 0).toString(),
+                                    subtitle: "${dashboardData['vehicles']?['active'] ?? 0} actifs",
                                     color: const Color(0xFFE9F1FC),
                                     iconColor: const Color(0xFF003366),
                                   ),
                                   StatCard(
-                                    icon: Icons.build,
-                                    label: "Entretiens en cours",
-                                    value: vehiculesEnMaintenance.toString(),
+                                    icon: Icons.person,
+                                    label: "Total conducteurs",
+                                    value: (dashboardData['drivers']?['total'] ?? 0).toString(),
+                                    subtitle: "${dashboardData['drivers']?['active'] ?? 0} actifs",
                                     color: const Color(0xFFF1F5F9),
                                     iconColor: const Color(0xFF003366),
                                   ),
                                   StatCard(
-                                    icon: Icons.person,
-                                    label: "Conducteurs actifs",
-                                    value: conducteursActifs.toString(),
-                                    color: const Color(0xFFF1F5F9),
-                                    iconColor: const Color(0xFF003366),
+                                    icon: Icons.assignment,
+                                    label: "Total missions",
+                                    value: (dashboardData['missions']?['total'] ?? 0).toString(),
+                                    subtitle: "${dashboardData['missions']?['pending'] ?? 0} en attente",
+                                    color: const Color(0xFFE8F5E8),
+                                    iconColor: const Color(0xFF2E7D32),
                                   ),
                                   StatCard(
                                     icon: Icons.warning,
-                                    label: "Docs proches d'expiration",
-                                    value: documentsExpires.toString(),
-                                    color: const Color(0xFFFFF4E5),
-                                    iconColor: Colors.orange,
+                                    label: "Alertes critiques",
+                                    value: (dashboardData['alerts']?['critical'] ?? 0).toString(),
+                                    subtitle: "${dashboardData['alerts']?['total'] ?? 0} total",
+                                    color: const Color(0xFFFFF3E0),
+                                    iconColor: const Color(0xFFF57C00),
+                                  ),
+                                  StatCard(
+                                    icon: Icons.euro,
+                                    label: "Dépenses (30j)",
+                                    value: "${(dashboardData['finances']?['recent_expenses'] ?? 0.0).toStringAsFixed(0)}€",
+                                    subtitle: "Carburant: ${(dashboardData['finances']?['recent_fuel'] ?? 0.0).toStringAsFixed(0)}€",
+                                    color: const Color(0xFFFCE4EC),
+                                    iconColor: const Color(0xFFC2185B),
                                   ),
                                 ],
                               ),
@@ -267,12 +243,12 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   height: 200,
-                                  child: vehiculesParType.isEmpty
+                                  child: dashboardData['vehicles']?['by_type']?.isEmpty ?? true
                                       ? const Center(
                                           child: Text("Aucune donnée"))
                                       : PieChart(
                                           PieChartData(
-                                            sections: vehiculesParType.entries
+                                            sections: (dashboardData['vehicles']?['by_type'] as Map<String, int>).entries
                                                 .map(
                                                   (e) => PieChartSectionData(
                                                     value: e.value.toDouble(),
@@ -336,13 +312,13 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                   ],
                                 ),
                                 const SizedBox(height: 16),
-                                vehicules.isEmpty
+                                dashboardData['vehicles']?['recent']?.isEmpty ?? true
                                     ? const Padding(
                                         padding: EdgeInsets.all(8.0),
                                         child: Text("Aucun véhicule trouvé."),
                                       )
                                     : VehiculeTable(
-                                        vehicules: vehicules.take(5).toList()),
+                                        vehicules: dashboardData['vehicles']?['recent'] as List<dynamic>),
                               ],
                             ),
                           ),
@@ -407,14 +383,14 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
               ),
             ),
             const SizedBox(height: 16),
-            conducteurs.isEmpty
+            dashboardData['drivers']?['recent']?.isEmpty ?? true
                 ? const Text("Aucun conducteur à afficher.")
                 : ListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemCount: conducteurs.length > 5 ? 5 : conducteurs.length,
+                    itemCount: (dashboardData['drivers']?['recent'] as List<dynamic>)?.length ?? 0,
                     itemBuilder: (context, index) {
-                      final conducteur = conducteurs[index];
+                      final conducteur = (dashboardData['drivers']?['recent'] as List<dynamic>)?[index];
                       final prenom = conducteur['user_profile']?['user']
                               ?['first_name'] ??
                           '';
@@ -469,6 +445,7 @@ class StatCard extends StatefulWidget {
   final IconData icon;
   final String label;
   final String value;
+  final String? subtitle;
   final Color color;
   final Color iconColor;
   final Color textColor;
@@ -478,6 +455,7 @@ class StatCard extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.subtitle,
     required this.color,
     required this.iconColor,
     this.textColor = const Color(0xFF002244),
@@ -520,6 +498,14 @@ class _StatCardState extends State<StatCard> {
                   fontWeight: FontWeight.bold,
                   color: widget.textColor,
                 )),
+            if (widget.subtitle != null)
+              Text(
+                widget.subtitle!,
+                style: GoogleFonts.poppins(
+                  fontSize: 10,
+                  color: widget.textColor.withOpacity(0.7),
+                ),
+              ),
           ],
         ),
       ),

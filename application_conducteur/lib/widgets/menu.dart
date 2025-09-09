@@ -24,18 +24,30 @@ class _MenuState extends State<Menu> with SingleTickerProviderStateMixin {
 
   final List<_MenuItemData> menuItems = [
     _MenuItemData(Icons.dashboard_outlined, 'Tableau de bord', '/dashboard'),
-    _MenuItemData(Icons.person_outline, 'Mon profil', '/profil'),
-    _MenuItemData(Icons.directions_car, 'Mes véhicules', '/vehicules'),
     _MenuItemData(Icons.assignment_rounded, 'Mes missions', '/missions'),
     _MenuItemData(Icons.person_outline, 'Mes trajets', '/trajets'),
-    _MenuItemData(Icons.insert_drive_file_rounded, 'Documents', '/documents'),
+    _MenuItemData(Icons.report_problem_outlined, 'Mes incidents', '/incidents'),
+
+    _MenuItemData(
+      Icons.insert_drive_file_rounded,
+      'Mes documents',
+      '/documents',
+    ),
+
     _MenuItemData(
       Icons.warning_amber_rounded,
-      'Alertes',
+      'Mes alertes',
       '/alertes',
       badgeCount: 3,
     ),
-    _MenuItemData(Icons.timeline_rounded, 'Historique', '/historiques'),
+    _MenuItemData(
+      Icons.bar_chart_outlined,
+      'Mes statistiques',
+      '/statistiques',
+    ),
+
+    _MenuItemData(Icons.timeline_rounded, 'Mon historique', '/historiques'),
+    _MenuItemData(Icons.settings, 'Paramètres', '/parametres'),
   ];
 
   @override
@@ -97,13 +109,16 @@ class _MenuState extends State<Menu> with SingleTickerProviderStateMixin {
               width: widthAnimation.value,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF1B5E20), Color(0xFF4CAF50)],
+                  colors: [
+                    Color(0xFF64B5F6), // bleu clair subtil
+                    Color(0xFF1E88E5), // bleu principal (connexion.dart)
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.green.shade900.withOpacity(0.6),
+                    color: Colors.blue.shade900.withOpacity(0.4),
                     blurRadius: 10,
                     offset: const Offset(0, 5),
                   ),
@@ -129,7 +144,7 @@ class _MenuState extends State<Menu> with SingleTickerProviderStateMixin {
           child: Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFF1B5E20), Color(0xFF4CAF50)],
+                colors: [Color(0xFF64B5F6), Color(0xFF1E88E5)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),

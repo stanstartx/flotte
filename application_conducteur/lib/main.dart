@@ -6,14 +6,14 @@ import 'services/position_sender_service.dart';
 import 'connexion.dart';
 //import 'package:application_conducteur/ecrans/tableau_de_bord.dart';
 import 'package:application_conducteur/ecrans/missions.dart';
-import 'package:application_conducteur/ecrans/vehicules.dart';
 import 'package:application_conducteur/ecrans/doc.dart';
-import 'package:application_conducteur/ecrans/profil.dart';
 import 'package:application_conducteur/ecrans/historiques.dart';
 import 'package:application_conducteur/ecrans/alertes.dart';
 import 'package:application_conducteur/ecrans/dashboard.dart';
 import 'package:application_conducteur/ecrans/trajets.dart';
-import 'package:application_conducteur/ecrans/settings_screen.dart';
+import 'package:application_conducteur/ecrans/parametres.dart';
+import 'package:application_conducteur/ecrans/statistiques.dart';
+import 'package:application_conducteur/ecrans/incidents.dart';
 
 void main() {
   runApp(
@@ -62,13 +62,13 @@ class MyApp extends StatelessWidget {
         '/': (context) => const ConnexionPage(),
         '/dashboard': (context) => TableauDeBord(),
         '/missions': (context) => const MissionsPage(),
-        '/vehicules': (context) => const VehiculesPage(),
         '/documents': (context) => DocumentsPage(),
-        '/profil': (context) => ProfilPage(),
         '/historiques': (context) => HistoriquesPage(),
         '/alertes': (context) => AlertesPage(),
         '/trajets': (context) => TrajetsPage(),
-        '/settings': (context) => const SettingsScreen(),
+        '/parametres': (context) => const ParametresPage(),
+        '/statistiques': (context) => const StatistiquesPage(),
+        '/incidents': (context) => const IncidentsPage(),
       },
     );
   }

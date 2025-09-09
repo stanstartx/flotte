@@ -1,13 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:application_conducteur/services/mission_service.dart';
-import 'package:application_conducteur/widgets/google_maps_widget.dart';
-import 'package:application_conducteur/services/google_maps_service.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class MissionsPage extends StatefulWidget {
   const MissionsPage({super.key});
@@ -19,370 +13,81 @@ class MissionsPage extends StatefulWidget {
 class _MissionsPageState extends State<MissionsPage>
     with TickerProviderStateMixin {
   List<Map<String, dynamic>> missions = [];
-  final List<Map<String, String>> notifications = [
-    {
-      'titre': 'Nouvelle mission ajoutée',
-      'description': 'Vous avez une nouvelle mission de livraison à effectuer.',
-      'date': '19 Juin 2025',
-    },
-    {
-      'titre': 'Mise à jour de mission',
-      'description':
-          'La mission "Réparation véhicule B" est maintenant terminée.',
-      'date': '18 Juin 2025',
-    },
-    {
-      'titre': 'Rappel entretien',
-      'description': 'Un entretien est prévu demain pour le véhicule C.',
-      'date': '17 Juin 2025',
-    },
-  ];
-
+  List<Map<String, dynamic>> notifications = [];
   late TabController _tabController;
   String searchQuery = "";
-  bool _isLoading = true;
-  String? _error;
+
+  // Couleurs adaptées de trajets.dart
+  static const primaryColor = Color(0xFF1E88E5);
+  static const secondaryColor = Color(0xFF1C6DD0);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(
+      length: 4,
+      vsync: this,
+    ); // Onglets: Toutes, À faire, Acceptées, Terminées
     _fetchMissions();
   }
 
   Future<void> _fetchMissions() async {
-    setState(() { _isLoading = true; _error = null; });
     try {
       final data = await MissionService.fetchMissions();
-      
-      // Traiter les missions avec calcul des vraies distances
-      final List<Map<String, dynamic>> processedMissions = [];
-      
-      for (final m in data) {
-        // Logique de classement
-        String statutLabel = '';
-        final reponse = (m['reponse_conducteur'] ?? '').toLowerCase();
-        final statutBackend = (m['statut'] ?? '').toLowerCase();
-        if (statutBackend == 'terminee') {
-          statutLabel = 'Terminée';
-        } else if (reponse == 'acceptee') {
-          statutLabel = 'Acceptée';
-        } else if (reponse == 'refusee') {
-          statutLabel = 'Refusée';
-        } else {
-          statutLabel = 'À faire';
-        }
-        
-        // Calculer la vraie distance si les adresses sont disponibles
-        String distanceText = m['distance_km']?.toString() ?? '';
-        String durationText = '';
-        
-        if (m['lieu_depart'] != null && m['lieu_arrivee'] != null &&
-            m['lieu_depart'].toString().isNotEmpty && m['lieu_arrivee'].toString().isNotEmpty) {
-          try {
-            final distanceData = await GoogleMapsService.calculateDistanceBetweenAddresses(
-              origin: m['lieu_depart'].toString(),
-              destination: m['lieu_arrivee'].toString(),
-            );
-            distanceText = distanceData['distance'];
-            durationText = distanceData['duration'];
-          } catch (e) {
-            // En cas d'erreur, garder la distance du backend
-            print('Erreur calcul distance: $e');
-          }
-        }
-        
-        processedMissions.add({
-          'id': m['id'],
-          'titre': m['raison'] ?? '',
-          'depart': m['lieu_depart'] ?? '',
-          'arrivee': m['lieu_arrivee'] ?? '',
-          'date': (m['date_depart'] ?? '').toString().substring(0, 10),
-          'heure': (m['date_depart'] ?? '').toString().substring(11, 16),
-          'distance': distanceText,
-          'duration': durationText,
-          'statut': statutLabel,
-          'description': m['raison'] ?? '',
-        });
-      }
-      
       setState(() {
-        missions = processedMissions;
-        _isLoading = false;
+        missions = data;
       });
     } catch (e) {
-      setState(() {
-        _error = 'Erreur: $e';
-        _isLoading = false;
-      });
+      debugPrint("Erreur: $e");
     }
   }
 
-  Future<void> _accepterMission(int missionId) async {
-    try {
-      await MissionService.accepterMission(missionId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mission acceptée ✅'), backgroundColor: Color(0xFF22C55E)),
-      );
-      _fetchMissions();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: const Color(0xFFDC2626)),
-      );
-    }
+  void _accepterMission(int id) {
+    setState(() {
+      final index = missions.indexWhere((m) => m['id'] == id);
+      if (index != -1) missions[index]['statut'] = 'Acceptée';
+    });
   }
 
-  Future<void> _refuserMission(int missionId) async {
-    try {
-      await MissionService.refuserMission(missionId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mission refusée ❌'), backgroundColor: Color(0xFFDC2626)),
-      );
-      _fetchMissions();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: const Color(0xFFDC2626)),
-      );
-    }
-  }
-
-  Future<void> _ouvrirItineraireGoogleMaps(String depart, String arrivee) async {
-    try {
-      // Encoder les adresses pour l'URL
-      final departEncoded = Uri.encodeComponent(depart);
-      final arriveeEncoded = Uri.encodeComponent(arrivee);
-      
-      // URL Google Maps pour la navigation
-      final url = 'https://www.google.com/maps/dir/?api=1&origin=$departEncoded&destination=$arriveeEncoded&travelmode=driving';
-      
-      final uri = Uri.parse(url);
-      
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        throw Exception('Impossible d\'ouvrir Google Maps');
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de l\'ouverture de l\'itinéraire: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _showMissionDetails(Map<String, dynamic> mission) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.8,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            // Handle
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            
-            // Header
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Icon(Icons.assignment, color: Color(0xFF6A4EC2)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      mission['titre'] ?? 'Mission',
-                      style: GoogleFonts.poppins(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            
-            // Carte avec itinéraire
-            if (mission['depart'] != null && mission['arrivee'] != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: RouteMapWidget(
-                  origin: mission['depart'],
-                  destination: mission['arrivee'],
-                  height: 300,
-                ),
-              ),
-            
-            // Détails de la mission
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDetailItem('Départ', mission['depart'] ?? 'Non spécifié'),
-                    _buildDetailItem('Arrivée', mission['arrivee'] ?? 'Non spécifié'),
-                    _buildDetailItem('Date', mission['date'] ?? 'Non spécifié'),
-                    _buildDetailItem('Heure', mission['heure'] ?? 'Non spécifié'),
-                                         if (mission['distance'] != null && mission['distance'].isNotEmpty)
-                       _buildDetailItem('Distance', mission['distance']),
-                     if (mission['duration'] != null && mission['duration'].isNotEmpty)
-                       _buildDetailItem('Durée estimée', mission['duration']),
-                    _buildDetailItem('Statut', mission['statut'] ?? 'Non spécifié'),
-                    if (mission['description'] != null && mission['description'].isNotEmpty)
-                      _buildDetailItem('Description', mission['description']),
-                  ],
-                ),
-              ),
-            ),
-            
-            // Actions
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  // Bouton Itinéraire (toujours visible)
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _ouvrirItineraireGoogleMaps(
-                          mission['depart'] ?? '',
-                          mission['arrivee'] ?? '',
-                        );
-                      },
-                      icon: const Icon(Icons.directions),
-                      label: const Text('Ouvrir l\'itinéraire dans Google Maps'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                  
-                  // Boutons Accepter/Refuser (si applicable)
-                  if (mission['statut'] == 'À faire') ...[
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              _accepterMission(mission['id']);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF22C55E),
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('Accepter'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              _refuserMission(mission['id']);
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFFEF4444),
-                            ),
-                            child: const Text('Refuser'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailItem(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
+  void _refuserMission(int id) {
+    setState(() {
+      final index = missions.indexWhere((m) => m['id'] == id);
+      if (index != -1) missions[index]['statut'] = 'Refusée';
+    });
   }
 
   Color getStatusColor(String status) {
     switch (status) {
       case 'À faire':
-        return const Color(0xFF14532D);
-      case 'En cours':
-        return const Color(0xFF2563EB);
-      case 'Terminé':
-        return const Color(0xFF22C55E);
-      case 'Annulé':
-        return const Color(0xFFDC2626);
+        return const Color(
+          0xFFF39C12,
+        ); // Orange comme "En attente" dans trajets
+      case 'Acceptée':
+        return primaryColor; // Bleu primaire
+      case 'Refusée':
+        return const Color(0xFFE74C3C); // Rouge comme "Annulé" dans trajets
+      case 'Terminée':
+        return const Color(0xFF2ECC71); // Vert comme "Réalisé" dans trajets
       default:
         return Colors.grey;
     }
   }
 
   Widget missionCard(Map<String, dynamic> mission, {bool isMobile = false}) {
-    final bool peutAccepterOuRefuser = mission['statut'] == 'À faire' || mission['statut'] == 'En attente';
+    final bool peutAccepterOuRefuser = mission['statut'] == 'À faire';
     return GestureDetector(
-      onTap: () => showMissionDetailsModal(context, mission),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
+      onTap: () => _showMissionDetails(mission),
+      child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Colors.grey[50], // Même couleur que trajets
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF2F855A).withOpacity(0.06),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withOpacity(0.04), // Même ombre que trajets
+              blurRadius: 12,
+              offset: const Offset(0, 6),
             ),
           ],
-          border: Border.all(color: Colors.grey.shade200),
         ),
         padding: EdgeInsets.all(isMobile ? 12 : 20),
         child: Column(
@@ -394,177 +99,125 @@ class _MissionsPageState extends State<MissionsPage>
               children: [
                 Expanded(
                   child: Text(
-                    mission['titre'],
+                    mission['titre'] ?? '',
                     style: GoogleFonts.poppins(
                       fontSize: isMobile ? 16 : 18,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF14532D),
+                      fontWeight: FontWeight.w600, // Adapté de trajets
+                      color: Colors.black87, // Adapté de trajets
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                    horizontal: 10, // Adapté de trajets
+                    vertical: 4,
                   ),
                   decoration: BoxDecoration(
                     color: getStatusColor(mission['statut']).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(
+                      14,
+                    ), // Adapté de trajets
                   ),
                   child: Text(
-                    mission['statut'],
+                    mission['statut'] ?? '',
                     style: GoogleFonts.poppins(
-                      fontSize: 13,
+                      fontSize: 12, // Adapté de trajets
                       color: getStatusColor(mission['statut']),
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500, // Adapté de trajets
                     ),
                   ),
                 ),
               ],
             ),
-            SizedBox(height: isMobile ? 8 : 10),
+            const SizedBox(height: 10),
             // Date + Heure
             Row(
               children: [
-                const Icon(
-                  Icons.calendar_today_rounded,
-                  color: Colors.grey,
-                  size: 18,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  mission['date'],
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: Colors.grey[700],
-                  ),
-                ),
-                const SizedBox(width: 20),
-                const Icon(
+                Icon(
                   Icons.access_time_outlined,
-                  color: Colors.grey,
+                  color: Colors.grey, // Adapté de trajets
                   size: 18,
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  mission['heure'],
+                  '${mission['date']} - ${mission['heure']}',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: Colors.grey[700],
+                    fontSize: 13, // Adapté de trajets
+                    color: Colors.grey[700], // Adapté de trajets
                   ),
                 ),
               ],
             ),
-            SizedBox(height: isMobile ? 10 : 12),
-            // Départ -> Arrivée
+            const Divider(
+              height: 20,
+              color: Colors.grey,
+            ), // Ajouté comme dans trajets
+            // Départ → Arrivée
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.location_on_rounded,
-                  color: Color(0xFF14532D),
+                  color: primaryColor, // Adapté de trajets
                   size: 20,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    "${mission['depart']} ➜ ${mission['arrivee']}",
+                    '${mission['depart']} ➜ ${mission['arrivee']}', // Style de trajets
                     style: GoogleFonts.poppins(
                       fontSize: 14,
-                      color: const Color(0xFF14532D),
-                      fontWeight: FontWeight.w600,
+                      color: Colors.black87, // Adapté de trajets
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Boutons Accepter/Refuser
+            if (peutAccepterOuRefuser)
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _accepterMission(mission['id']),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Accepter'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(
+                        0xFF2ECC71,
+                      ), // Vert de trajets
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            SizedBox(height: isMobile ? 6 : 8),
-            // Distance et durée
-            Row(
-              children: [
-                const Icon(
-                  Icons.directions_car_filled_rounded,
-                  color: Colors.grey,
-                  size: 18,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (mission['distance'] != null && mission['distance'].isNotEmpty)
-                        Text(
-                          "Distance : ${mission['distance']}",
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      if (mission['duration'] != null && mission['duration'].isNotEmpty)
-                        Text(
-                          "Durée : ${mission['duration']}",
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: isMobile ? 10 : 14),
-            // Bouton Itinéraire (toujours visible)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Bouton Itinéraire
-                ElevatedButton.icon(
-                  onPressed: () => _ouvrirItineraireGoogleMaps(
-                    mission['depart'] ?? '',
-                    mission['arrivee'] ?? '',
-                  ),
-                  icon: const Icon(Icons.directions),
-                  label: const Text('Itinéraire'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                
-                // Boutons Accepter/Refuser (si applicable)
-                if (peutAccepterOuRefuser)
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () => _accepterMission(mission['id']),
-                        icon: const Icon(Icons.check),
-                        label: const Text('Accepter'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF22C55E),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => _refuserMission(mission['id']),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Refuser'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(
+                        0xFFE74C3C,
+                      ), // Rouge de trajets
+                      side: const BorderSide(color: Color(0xFFE74C3C)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
                       ),
-                      const SizedBox(width: 12),
-                      OutlinedButton.icon(
-                        onPressed: () => _refuserMission(mission['id']),
-                        icon: const Icon(Icons.close),
-                        label: const Text('Refuser'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFDC2626),
-                          side: const BorderSide(color: Color(0xFFDC2626)),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
+                    ),
                   ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
       ),
@@ -578,47 +231,60 @@ class _MissionsPageState extends State<MissionsPage>
     Color color, {
     bool isMobile = false,
   }) {
+    Color bgColor;
+    Color textColor;
+
+    // Définir les couleurs selon le type de statistique
+    switch (label) {
+      case 'Total':
+        bgColor = Colors.grey[100]!;
+        textColor = Colors.black87;
+        break;
+      case 'À faire':
+        bgColor = Colors.orange[100]!;
+        textColor = Colors.orange[700]!;
+        break;
+      case 'Terminées':
+        bgColor = Colors.green[100]!;
+        textColor = Colors.green[700]!;
+        break;
+      default:
+        bgColor = Colors.grey[100]!;
+        textColor = Colors.black87;
+    }
+
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 12 : 16,
-        vertical: isMobile ? 10 : 14,
-      ),
+      padding: EdgeInsets.all(isMobile ? 14 : 18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF2F855A).withOpacity(0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
         ],
-        border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: isMobile ? 18 : 22, color: color),
-          SizedBox(width: isMobile ? 8 : 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: GoogleFonts.poppins(
-                  fontSize: isMobile ? 11 : 13,
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                value,
-                style: GoogleFonts.poppins(
-                  fontSize: isMobile ? 15 : 18,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF14532D),
-                ),
-              ),
-            ],
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: textColor.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
           ),
         ],
       ),
@@ -669,25 +335,24 @@ class _MissionsPageState extends State<MissionsPage>
 
         return Container(
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            color: Colors.grey[50], // Adapté de trajets
+            borderRadius: BorderRadius.circular(20), // Adapté de trajets
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF2F855A).withOpacity(0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 4),
+                color: Colors.black.withOpacity(0.04), // Adapté de trajets
+                blurRadius: 12,
+                offset: const Offset(0, 6),
               ),
             ],
-            border: Border.all(color: Colors.grey.shade200),
           ),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20), // Adapté de trajets
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: const Color(0xFF14532D),
+                    backgroundColor: primaryColor, // Couleur primaire
                     child: const Icon(Icons.notifications, color: Colors.white),
                   ),
                   const SizedBox(width: 12),
@@ -699,8 +364,8 @@ class _MissionsPageState extends State<MissionsPage>
                           notif['titre'] ?? '',
                           style: GoogleFonts.poppins(
                             fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF14532D),
+                            fontWeight: FontWeight.w600, // Adapté de trajets
+                            color: Colors.black87, // Adapté de trajets
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -708,7 +373,7 @@ class _MissionsPageState extends State<MissionsPage>
                           notif['description'] ?? '',
                           style: GoogleFonts.poppins(
                             fontSize: 13,
-                            color: Colors.grey[700],
+                            color: Colors.grey[700], // Adapté de trajets
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -730,18 +395,13 @@ class _MissionsPageState extends State<MissionsPage>
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Mission acceptée ✅"),
-                            backgroundColor: Color(0xFF22C55E),
-                          ),
-                        );
-                      },
+                      onPressed: () {},
                       icon: const Icon(Icons.check),
                       label: const Text("Accepter"),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF22C55E),
+                        backgroundColor: const Color(
+                          0xFF2ECC71,
+                        ), // Vert de trajets
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -754,19 +414,14 @@ class _MissionsPageState extends State<MissionsPage>
                     ),
                     const SizedBox(width: 12),
                     OutlinedButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Mission refusée ❌"),
-                            backgroundColor: Color(0xFFDC2626),
-                          ),
-                        );
-                      },
+                      onPressed: () {},
                       icon: const Icon(Icons.close),
                       label: const Text("Refuser"),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFDC2626),
-                        side: const BorderSide(color: Color(0xFFDC2626)),
+                        foregroundColor: const Color(
+                          0xFFE74C3C,
+                        ), // Rouge de trajets
+                        side: const BorderSide(color: Color(0xFFE74C3C)),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 10,
@@ -791,6 +446,204 @@ class _MissionsPageState extends State<MissionsPage>
     Map<String, dynamic> mission,
   ) {
     _showMissionDetails(mission);
+  }
+
+  void _showMissionDetails(Map<String, dynamic> mission) {
+    showGeneralDialog(
+      // Utilise le même style de modal que trajets
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Fermer",
+      barrierColor: Colors.black.withOpacity(0.2),
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            width: 420,
+            child: Material(
+              color: Colors.transparent,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Détails de la mission",
+                          style: GoogleFonts.poppins(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            color: primaryColor,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () => Navigator.of(context).pop(),
+                          borderRadius: BorderRadius.circular(24),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: primaryColor.withOpacity(0.15),
+                            ),
+                            child: Icon(
+                              Icons.close,
+                              size: 26,
+                              color: primaryColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    _detailRow(
+                      Icons.assignment,
+                      "Titre",
+                      mission['titre'] ?? '',
+                    ),
+                    _detailRow(
+                      Icons.calendar_today_rounded,
+                      "Date",
+                      mission['date'] ?? '',
+                    ),
+                    _detailRow(
+                      Icons.access_time_filled,
+                      "Heure",
+                      mission['heure'] ?? '',
+                    ),
+                    _detailRow(
+                      Icons.location_pin,
+                      "Départ",
+                      mission['depart'] ?? '',
+                    ),
+                    _detailRow(Icons.flag, "Arrivée", mission['arrivee'] ?? ''),
+                    _detailRow(
+                      Icons.description,
+                      "Description",
+                      mission['description'] ?? '',
+                    ),
+                    Row(
+                      children: [
+                        Icon(Icons.info_rounded, color: primaryColor, size: 24),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: getStatusColor(
+                              mission['statut'],
+                            ).withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            mission['statut'] ?? '',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: getStatusColor(mission['statut'] ?? ''),
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 26,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          elevation: 6,
+                          backgroundColor: primaryColor,
+                          shadowColor: primaryColor.withOpacity(0.3),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text(
+                          "Fermer",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                            color: Colors.white,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return Transform.scale(
+          scale: animation.value,
+          child: Opacity(opacity: animation.value, child: child),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: primaryColor, size: 28),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[700],
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  value,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -823,11 +676,11 @@ class _MissionsPageState extends State<MissionsPage>
               ? AppBar(
                 backgroundColor: Colors.white,
                 elevation: 0,
-                iconTheme: const IconThemeData(color: Color(0xFF14532D)),
+                iconTheme: IconThemeData(color: secondaryColor), // Adapté
                 title: Text(
                   "Mes missions",
                   style: GoogleFonts.poppins(
-                    color: const Color(0xFF14532D),
+                    color: Colors.black87, // Adapté de trajets
                     fontWeight: FontWeight.w700,
                     fontSize: 22,
                   ),
@@ -847,65 +700,30 @@ class _MissionsPageState extends State<MissionsPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!isMobile) ...[
+                  if (!isMobile)
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment:
+                          MainAxisAlignment.start, // Adapté de trajets
                       children: [
-                        Flexible(
-                          child: Text(
-                            "Mes missions",
-                            style: GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF14532D),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
                         Icon(
                           Icons.assignment,
-                          color: const Color(0xFF2563EB),
-                          size: 30,
+                          color: Colors.blue, // Adapté de trajets
+                          size: 28,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          "Mes missions",
+                          style: GoogleFonts.poppins(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF1A202C), // Adapté de trajets
+                          ),
                         ),
                       ],
                     ),
-                    SizedBox(height: 10),
-                  ],
+                  if (!isMobile) const SizedBox(height: 10),
 
-                  // Barre recherche
-                  TextField(
-                    onChanged: (value) {
-                      setState(() {
-                        searchQuery = value;
-                      });
-                    },
-                    decoration: InputDecoration(
-                      hintText: "Rechercher une mission...",
-                      prefixIcon: const Icon(
-                        Icons.search,
-                        color: Color(0xFF14532D),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: Color(0xFF14532D)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: Color(0xFF14532D),
-                          width: 2,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                    ),
-                    style: GoogleFonts.poppins(color: const Color(0xFF14532D)),
-                    cursorColor: const Color(0xFF14532D),
-                  ),
-
-                  SizedBox(height: isMobile ? 12 : 16),
-
-                  // Statistiques
+                  // Statistiques colorées selon le style de trajets
                   isMobile
                       ? Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -914,7 +732,7 @@ class _MissionsPageState extends State<MissionsPage>
                             "Total",
                             missions.length.toString(),
                             Icons.list_alt,
-                            const Color(0xFF14532D),
+                            Colors.black87,
                             isMobile: true,
                           ),
                           SizedBox(height: 12),
@@ -925,7 +743,7 @@ class _MissionsPageState extends State<MissionsPage>
                                 .length
                                 .toString(),
                             Icons.pending_actions,
-                            const Color(0xFF14532D),
+                            Colors.orange[700]!,
                             isMobile: true,
                           ),
                           SizedBox(height: 12),
@@ -936,18 +754,7 @@ class _MissionsPageState extends State<MissionsPage>
                                 .length
                                 .toString(),
                             Icons.check_circle_outline,
-                            const Color(0xFF2563EB),
-                            isMobile: true,
-                          ),
-                          SizedBox(height: 12),
-                          _buildStatCard(
-                            "Refusées",
-                            missions
-                                .where((m) => m['statut'] == 'Refusée')
-                                .length
-                                .toString(),
-                            Icons.cancel_outlined,
-                            const Color(0xFFDC2626),
+                            Colors.blue[700]!,
                             isMobile: true,
                           ),
                           SizedBox(height: 12),
@@ -958,115 +765,130 @@ class _MissionsPageState extends State<MissionsPage>
                                 .length
                                 .toString(),
                             Icons.check_circle,
-                            const Color(0xFF22C55E),
+                            Colors.green[700]!,
                             isMobile: true,
                           ),
                         ],
                       )
                       : Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _buildStatCard(
-                            "Total",
-                            missions.length.toString(),
-                            Icons.list_alt,
-                            const Color(0xFF14532D),
-                          ),
-                          _buildStatCard(
-                            "À faire",
-                            missions
-                                .where((m) => m['statut'] == 'À faire')
-                                .length
-                                .toString(),
-                            Icons.pending_actions,
-                            const Color(0xFF14532D),
-                          ),
-                          _buildStatCard(
-                            "Acceptées",
-                            missions
-                                .where((m) => m['statut'] == 'Acceptée')
-                                .length
-                                .toString(),
-                            Icons.check_circle_outline,
-                            const Color(0xFF2563EB),
-                          ),
-                          _buildStatCard(
-                            "Refusées",
-                            missions
-                                .where((m) => m['statut'] == 'Refusée')
-                                .length
-                                .toString(),
-                            Icons.cancel_outlined,
-                            const Color(0xFFDC2626),
-                          ),
-                          _buildStatCard(
-                            "Terminées",
-                            missions
-                                .where((m) => m['statut'] == 'Terminée')
-                                .length
-                                .toString(),
-                            Icons.check_circle,
-                            const Color(0xFF22C55E),
-                          ),
-                        ],
-                      ),
-
-                  SizedBox(height: 16),
-
-                  // Tabs
-                  Expanded(
-                    child: DefaultTabController(
-                      length: 6,
-                      child: Column(
-                        children: [
-                          TabBar(
-                            controller: _tabController,
-                            labelColor: const Color(0xFF14532D),
-                            unselectedLabelColor: Colors.grey[600],
-                            indicatorColor: const Color(0xFF14532D),
-                            labelStyle: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w700,
-                            ),
-                            tabs: const [
-                              Tab(text: "À faire"),
-                              Tab(text: "Acceptées"),
-                              Tab(text: "Refusées"),
-                              Tab(text: "Terminées"),
-                              Tab(text: "Annulées"),
-                              Tab(text: "Notifications"),
-                            ],
-                          ),
-                          SizedBox(height: 12),
                           Expanded(
-                            child: TabBarView(
-                              controller: _tabController,
-                              children: [
-                                _buildMissionsList(
-                                  groupedByStatus['À faire'] ?? [],
-                                  isMobile: isMobile,
-                                ),
-                                _buildMissionsList(
-                                  groupedByStatus['Acceptée'] ?? [],
-                                  isMobile: isMobile,
-                                ),
-                                _buildMissionsList(
-                                  groupedByStatus['Refusée'] ?? [],
-                                  isMobile: isMobile,
-                                ),
-                                _buildMissionsList(
-                                  groupedByStatus['Terminée'] ?? [],
-                                  isMobile: isMobile,
-                                ),
-                                _buildMissionsList(
-                                  groupedByStatus['Annulée'] ?? [],
-                                  isMobile: isMobile,
-                                ),
-                                _buildNotificationsTab(isMobile: isMobile),
-                              ],
+                            child: _buildStatCard(
+                              "Total",
+                              missions.length.toString(),
+                              Icons.list_alt,
+                              Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildStatCard(
+                              "À faire",
+                              missions
+                                  .where((m) => m['statut'] == 'À faire')
+                                  .length
+                                  .toString(),
+                              Icons.pending_actions,
+                              Colors.orange[700]!,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildStatCard(
+                              "Acceptées",
+                              missions
+                                  .where((m) => m['statut'] == 'Acceptée')
+                                  .length
+                                  .toString(),
+                              Icons.check_circle_outline,
+                              Colors.blue[700]!,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildStatCard(
+                              "Terminées",
+                              missions
+                                  .where((m) => m['statut'] == 'Terminée')
+                                  .length
+                                  .toString(),
+                              Icons.check_circle,
+                              Colors.green[700]!,
                             ),
                           ),
                         ],
                       ),
+                  const SizedBox(height: 16),
+
+                  // Barre recherche adaptée
+                  TextField(
+                    onChanged: (value) {
+                      setState(() {
+                        searchQuery = value;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      hintText: "Rechercher une mission...",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                    ),
+                    style: const TextStyle(color: Colors.black87),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // TabBar pour les onglets
+                  TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.black87,
+                    unselectedLabelColor: Colors.grey[600],
+                    indicatorColor: primaryColor,
+                    labelStyle: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    tabs: const [
+                      Tab(text: "Toutes"),
+                      Tab(text: "À faire"),
+                      Tab(text: "Acceptées"),
+                      Tab(text: "Terminées"),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        // Onglet "Toutes"
+                        _buildMissionsList(
+                          filteredMissions,
+                          isMobile: isMobile,
+                        ),
+                        // Onglet "À faire"
+                        _buildMissionsList(
+                          filteredMissions
+                              .where((m) => m['statut'] == 'À faire')
+                              .toList(),
+                          isMobile: isMobile,
+                        ),
+                        // Onglet "Acceptées"
+                        _buildMissionsList(
+                          filteredMissions
+                              .where((m) => m['statut'] == 'Acceptée')
+                              .toList(),
+                          isMobile: isMobile,
+                        ),
+                        // Onglet "Terminées"
+                        _buildMissionsList(
+                          filteredMissions
+                              .where((m) => m['statut'] == 'Terminée')
+                              .toList(),
+                          isMobile: isMobile,
+                        ),
+                      ],
                     ),
                   ),
                 ],

@@ -2,11 +2,11 @@ class AppConfig {
   // Configuration Google Maps
   static const String googleMapsApiKey = 'AIzaSyCyze4WaCmpwGGOB2GkpwH-pTNc04DrEKQ';
   
-  // ⚠️ Utiliser l’IP LAN de ta machine Django (déjà mise dans ALLOWED_HOSTS)
-  static const String baseUrl = 'http://192.168.11.243:8000';
-
+  // Configuration API Backend
+  static const String baseUrl = 'http://localhost:8000';
+  
   // Configuration de l'application
-  static const String appName = 'Gestion de Flotte';
+  static const String appName = 'Application Conducteur';
   static const String appVersion = '1.0.0';
   
   // Coordonnées par défaut (Abidjan)

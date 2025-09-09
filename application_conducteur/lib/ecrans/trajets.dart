@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:application_conducteur/config.dart';
 
 class TrajetsPage extends StatefulWidget {
   const TrajetsPage({super.key});
@@ -50,11 +52,11 @@ class _TrajetsPageState extends State<TrajetsPage>
   Color getStatusColor(String status) {
     switch (status) {
       case 'Réalisé':
-        return const Color(0xFF2ECC71);
+        return const Color(0xFF2ECC71); // vert
       case 'En attente':
-        return const Color(0xFFF39C12);
+        return const Color(0xFFF39C12); // orange
       case 'Annulé':
-        return const Color(0xFFE74C3C);
+        return const Color(0xFFE74C3C); // rouge
       default:
         return Colors.grey;
     }
@@ -96,12 +98,80 @@ class _TrajetsPageState extends State<TrajetsPage>
     return grouped;
   }
 
+  Widget _buildInteractiveMap(Map<String, dynamic> trajet) {
+    // Coordonnées par défaut pour Abidjan
+    const LatLng abidjanCenter = LatLng(AppConfig.defaultLatitude, AppConfig.defaultLongitude);
+    
+    // Coordonnées fictives pour les trajets (à remplacer par de vraies coordonnées)
+    final LatLng depart = LatLng(
+      abidjanCenter.latitude + (trajet['depart'].hashCode % 100) * 0.001,
+      abidjanCenter.longitude + (trajet['depart'].hashCode % 100) * 0.001,
+    );
+    final LatLng arrivee = LatLng(
+      abidjanCenter.latitude + (trajet['arrivee'].hashCode % 100) * 0.001,
+      abidjanCenter.longitude + (trajet['arrivee'].hashCode % 100) * 0.001,
+    );
+
+    return Container(
+      height: 200,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: depart,
+            zoom: AppConfig.defaultZoom,
+          ),
+          markers: {
+            Marker(
+              markerId: const MarkerId('depart'),
+              position: depart,
+              infoWindow: InfoWindow(
+                title: 'Départ',
+                snippet: trajet['depart'],
+              ),
+              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+            ),
+            Marker(
+              markerId: const MarkerId('arrivee'),
+              position: arrivee,
+              infoWindow: InfoWindow(
+                title: 'Arrivée',
+                snippet: trajet['arrivee'],
+              ),
+              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            ),
+          },
+          polylines: {
+            Polyline(
+              polylineId: const PolylineId('trajet'),
+              points: [depart, arrivee],
+              color: Colors.blue,
+              width: 3,
+            ),
+          },
+          mapType: MapType.normal,
+          myLocationEnabled: false,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+          mapToolbarEnabled: false,
+        ),
+      ),
+    );
+  }
+
   void showDetailsModal(BuildContext context, Map<String, dynamic> trajet) {
+    const primaryColor = Color(0xFF1E88E5);
+
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: "Fermer",
-      barrierColor: const Color(0xFF2F855A).withOpacity(0.08),
+      barrierColor: Colors.black.withOpacity(0.2),
       transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (context, animation, secondaryAnimation) {
         return Center(
@@ -113,7 +183,7 @@ class _TrajetsPageState extends State<TrajetsPage>
               borderRadius: BorderRadius.circular(28),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF2F855A).withOpacity(0.12),
+                  color: Colors.black.withOpacity(0.08),
                   blurRadius: 16,
                   offset: const Offset(0, 8),
                 ),
@@ -127,7 +197,6 @@ class _TrajetsPageState extends State<TrajetsPage>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // En-tête
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -136,7 +205,7 @@ class _TrajetsPageState extends State<TrajetsPage>
                           style: GoogleFonts.poppins(
                             fontSize: 26,
                             fontWeight: FontWeight.w800,
-                            color: Colors.green.shade900,
+                            color: primaryColor,
                             letterSpacing: 1.1,
                           ),
                         ),
@@ -147,48 +216,34 @@ class _TrajetsPageState extends State<TrajetsPage>
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.green.shade700.withOpacity(0.15),
+                              color: primaryColor.withOpacity(0.15),
                             ),
                             child: Icon(
                               Icons.close,
                               size: 26,
-                              color: Colors.green.shade800,
+                              color: primaryColor,
                             ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 22),
-
-                    // Infos détaillées
-                    _premiumDetailRow(
+                    _detailRow(
                       Icons.calendar_today_rounded,
                       "Date",
                       trajet['date'],
                     ),
-                    _premiumDetailRow(
+                    _detailRow(
                       Icons.access_time_filled,
                       "Heure",
                       trajet['heure'],
                     ),
-                    _premiumDetailRow(
-                      Icons.location_pin,
-                      "Départ",
-                      trajet['depart'],
-                    ),
-                    _premiumDetailRow(Icons.flag, "Arrivée", trajet['arrivee']),
-                    _premiumDetailRow(
-                      Icons.speed,
-                      "Distance",
-                      trajet['distance'],
-                    ),
+                    _detailRow(Icons.location_pin, "Départ", trajet['depart']),
+                    _detailRow(Icons.flag, "Arrivée", trajet['arrivee']),
+                    _detailRow(Icons.speed, "Distance", trajet['distance']),
                     Row(
                       children: [
-                        const Icon(
-                          Icons.info_rounded,
-                          color: Colors.green,
-                          size: 24,
-                        ),
+                        Icon(Icons.info_rounded, color: primaryColor, size: 24),
                         const SizedBox(width: 12),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -213,23 +268,9 @@ class _TrajetsPageState extends State<TrajetsPage>
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 24),
-
-                    // Image Google Maps stylée
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Image.network(
-                        'https://maps.googleapis.com/maps/api/staticmap?center=Abidjan&zoom=12&size=600x300&markers=color:blue|${Uri.encodeComponent(trajet['depart'])}&markers=color:red|${Uri.encodeComponent(trajet['arrivee'])}&key=VOTRE_CLE_API',
-                        height: 200,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-
+                    _buildInteractiveMap(trajet),
                     const SizedBox(height: 32),
-
-                    // Bouton Fermer premium
                     Align(
                       alignment: Alignment.centerRight,
                       child: ElevatedButton(
@@ -242,8 +283,8 @@ class _TrajetsPageState extends State<TrajetsPage>
                             borderRadius: BorderRadius.circular(30),
                           ),
                           elevation: 6,
-                          backgroundColor: Colors.green.shade700,
-                          shadowColor: Colors.green.shade900.withOpacity(0.3),
+                          backgroundColor: primaryColor,
+                          shadowColor: primaryColor.withOpacity(0.3),
                         ),
                         onPressed: () => Navigator.of(context).pop(),
                         child: Text(
@@ -273,13 +314,14 @@ class _TrajetsPageState extends State<TrajetsPage>
     );
   }
 
-  Widget _premiumDetailRow(IconData icon, String label, String value) {
+  Widget _detailRow(IconData icon, String label, String value) {
+    const primaryColor = Color(0xFF1E88E5);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.green.shade600, size: 28),
+          Icon(icon, color: primaryColor, size: 28),
           const SizedBox(width: 18),
           Expanded(
             child: Column(
@@ -312,16 +354,16 @@ class _TrajetsPageState extends State<TrajetsPage>
   }
 
   Widget trajetCard(Map<String, dynamic> trajet) {
+    const primaryColor = Color(0xFF1E88E5);
     return GestureDetector(
       onTap: () => showDetailsModal(context, trajet),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
+      child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Colors.grey[50],
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withOpacity(0.04),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -339,6 +381,7 @@ class _TrajetsPageState extends State<TrajetsPage>
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    color: Colors.black87,
                   ),
                 ),
                 Container(
@@ -364,11 +407,7 @@ class _TrajetsPageState extends State<TrajetsPage>
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(
-                  Icons.access_time_outlined,
-                  color: Colors.grey,
-                  size: 18,
-                ),
+                Icon(Icons.access_time_outlined, color: Colors.grey, size: 18),
                 const SizedBox(width: 6),
                 Text(
                   trajet['heure'],
@@ -379,19 +418,18 @@ class _TrajetsPageState extends State<TrajetsPage>
                 ),
               ],
             ),
-            const Divider(height: 20),
+            const Divider(height: 20, color: Colors.grey),
             Row(
               children: [
-                const Icon(
-                  Icons.location_on_rounded,
-                  color: Colors.green,
-                  size: 20,
-                ),
+                Icon(Icons.location_on_rounded, color: primaryColor, size: 20),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     "${trajet['depart']} ➜ ${trajet['arrivee']}",
-                    style: GoogleFonts.poppins(fontSize: 14),
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      color: Colors.black87,
+                    ),
                   ),
                 ),
               ],
@@ -399,7 +437,7 @@ class _TrajetsPageState extends State<TrajetsPage>
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.directions_car_filled_rounded,
                   color: Colors.grey,
                   size: 18,
@@ -420,11 +458,51 @@ class _TrajetsPageState extends State<TrajetsPage>
     );
   }
 
+  Widget statsCard(String title, String value, Color bgColor, Color textColor) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: textColor.withOpacity(0.7),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: GoogleFonts.poppins(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
 
-    // Filtrage par recherche
     final filteredTrajets =
         trajets.where((trajet) {
           return trajet['depart'].toLowerCase().contains(
@@ -435,24 +513,30 @@ class _TrajetsPageState extends State<TrajetsPage>
               );
         }).toList();
 
-    // Groupements pour onglets
     final groupedByMonth = groupByMonth(filteredTrajets);
     final groupedByStatus = groupByStatus(filteredTrajets);
 
+    int totalTrajets = trajets.length;
+    int totalRealises = trajets.where((t) => t['statut'] == 'Réalisé').length;
+    int totalDistance = trajets.fold<int>(0, (prev, t) {
+      String km = t['distance'].replaceAll(' km', '');
+      return prev + int.tryParse(km)!;
+    });
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F8),
+      backgroundColor: Colors.white,
       drawer: isMobile ? const Drawer(child: Menu()) : null,
       appBar:
           isMobile
               ? AppBar(
                 backgroundColor: Colors.white,
-                iconTheme: IconThemeData(color: Colors.green.shade700),
+                iconTheme: const IconThemeData(color: Color(0xFF1C6DD0)),
                 elevation: 0,
                 title: Text(
                   "Mes trajets",
                   style: GoogleFonts.poppins(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF2F855A),
+                    color: Colors.black87,
                   ),
                 ),
               )
@@ -467,63 +551,50 @@ class _TrajetsPageState extends State<TrajetsPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (!isMobile) ...[
-                    // Titre + icône
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.start,
                       children: [
+                        const Icon(Icons.route, color: Colors.blue, size: 28),
+                        const SizedBox(width: 12),
                         Text(
                           "Mes trajets",
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
-                            color: const Color(0xFF2F855A),
+                            color: const Color(0xFF1A202C),
                           ),
-                        ),
-                        Icon(
-                          Icons.route,
-                          color: Colors.green.shade600,
-                          size: 30,
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
                   ],
 
-                  // Sous-titre + badge semaine
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        "Historique de la semaine",
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w400,
-                          color: Colors.grey[700],
-                        ),
+                      statsCard(
+                        "Total",
+                        "$totalTrajets",
+                        Colors.grey[100]!,
+                        Colors.black87,
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          "Semaine en cours",
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.green.shade700,
-                          ),
-                        ),
+                      const SizedBox(width: 16),
+                      statsCard(
+                        "Réalisés",
+                        "$totalRealises",
+                        Colors.green[100]!,
+                        Colors.green[700]!,
+                      ),
+                      const SizedBox(width: 16),
+                      statsCard(
+                        "Distance",
+                        "$totalDistance km",
+                        Colors.orange[100]!,
+                        Colors.orange[700]!,
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
 
-                  // Recherche
                   TextField(
                     onChanged: (value) {
                       setState(() {
@@ -537,43 +608,17 @@ class _TrajetsPageState extends State<TrajetsPage>
                         borderRadius: BorderRadius.circular(16),
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: Colors.grey[100],
                     ),
+                    style: const TextStyle(color: Colors.black87),
                   ),
                   const SizedBox(height: 16),
 
-                  // Statistiques
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildStatCard(
-                        "Total",
-                        trajets.length.toString(),
-                        Icons.list_alt,
-                      ),
-                      _buildStatCard(
-                        "Réalisés",
-                        trajets
-                            .where((t) => t['statut'] == 'Réalisé')
-                            .length
-                            .toString(),
-                        Icons.check_circle,
-                      ),
-                      _buildStatCard(
-                        "Distance",
-                        "${trajets.fold(0, (sum, t) => sum + int.parse(t['distance'].split(' ')[0]))} km",
-                        Icons.pin_drop,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Onglets mois / statut / tout
                   TabBar(
                     controller: _tabController,
-                    labelColor: Colors.green.shade700,
+                    labelColor: Colors.black87,
                     unselectedLabelColor: Colors.grey[600],
-                    indicatorColor: Colors.green.shade700,
+                    indicatorColor: Colors.black87,
                     labelStyle: GoogleFonts.poppins(
                       fontWeight: FontWeight.w700,
                     ),
@@ -585,12 +630,10 @@ class _TrajetsPageState extends State<TrajetsPage>
                   ),
                   const SizedBox(height: 12),
 
-                  // Contenu des onglets
                   Expanded(
                     child: TabBarView(
                       controller: _tabController,
                       children: [
-                        // Par mois
                         ListView.separated(
                           itemCount: groupedByMonth.keys.length,
                           separatorBuilder:
@@ -607,7 +650,7 @@ class _TrajetsPageState extends State<TrajetsPage>
                                   style: GoogleFonts.poppins(
                                     fontSize: 20,
                                     fontWeight: FontWeight.w700,
-                                    color: Colors.green.shade800,
+                                    color: Colors.black87,
                                   ),
                                 ),
                                 const SizedBox(height: 12),
@@ -616,8 +659,6 @@ class _TrajetsPageState extends State<TrajetsPage>
                             );
                           },
                         ),
-
-                        // Par statut
                         ListView.separated(
                           itemCount: groupedByStatus.keys.length,
                           separatorBuilder:
@@ -645,8 +686,6 @@ class _TrajetsPageState extends State<TrajetsPage>
                             );
                           },
                         ),
-
-                        // Tous
                         ListView.separated(
                           itemCount: filteredTrajets.length,
                           separatorBuilder:
@@ -658,61 +697,9 @@ class _TrajetsPageState extends State<TrajetsPage>
                       ],
                     ),
                   ),
-
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.arrow_forward),
-                      label: const Text("Voir tous les trajets"),
-                    ),
-                  ),
                 ],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String label, String value, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: Colors.green.shade700),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
-              ),
-              Text(
-                value,
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
           ),
         ],
       ),

@@ -54,6 +54,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import CreateAPIView, RetrieveAPIView
 from django.utils.dateparse import parse_datetime
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.db import models
 
 
 class UserProfileViewSet(viewsets.ModelViewSet):
@@ -220,6 +221,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     queryset = Assignment.objects.all()
     serializer_class = AssignmentSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+
+
 
 
 class MaintenanceViewSet(viewsets.ModelViewSet):
@@ -779,3 +783,259 @@ class LastPositionAPIView(RetrieveAPIView):
             return Response({'detail': 'Aucune position trouvée pour ce conducteur.'}, status=status.HTTP_404_NOT_FOUND)
         serializer = self.get_serializer(position)
         return Response(serializer.data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_stats(request):
+    """Endpoint pour les statistiques du dashboard"""
+    try:
+        # Statistiques des véhicules
+        total_vehicles = Vehicle.objects.count()
+        active_vehicles = Vehicle.objects.filter(actif=True).count()
+        
+        # Statistiques des conducteurs
+        total_drivers = Driver.objects.count()
+        active_drivers = Driver.objects.filter(statut='actif').count()
+        
+        # Statistiques des missions
+        total_missions = Mission.objects.count()
+        pending_missions = Mission.objects.filter(statut='en_attente').count()
+        active_missions = Mission.objects.filter(statut='en_cours').count()
+        
+        # Statistiques des alertes
+        total_alerts = Alert.objects.count()
+        critical_alerts = Alert.objects.filter(niveau='critique', resolue=False).count()
+        
+        # Statistiques financières (derniers 30 jours)
+        from datetime import datetime, timedelta
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        
+        recent_expenses = Expense.objects.filter(date__gte=thirty_days_ago)
+        total_recent_expenses = sum(expense.montant for expense in recent_expenses)
+        
+        recent_fuel = FuelLog.objects.filter(date__gte=thirty_days_ago)
+        total_recent_fuel = sum(fuel.cout for fuel in recent_fuel)
+        
+        return Response({
+            'vehicles': {
+                'total': total_vehicles,
+                'active': active_vehicles
+            },
+            'drivers': {
+                'total': total_drivers,
+                'active': active_drivers
+            },
+            'missions': {
+                'total': total_missions,
+                'pending': pending_missions,
+                'active': active_missions
+            },
+            'alerts': {
+                'total': total_alerts,
+                'critical': critical_alerts
+            },
+            'finances': {
+                'recent_expenses': float(total_recent_expenses),
+                'recent_fuel': float(total_recent_fuel),
+                'period_days': 30
+            }
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def recent_activities(request):
+    """Endpoint pour les activités récentes"""
+    try:
+        # Missions récentes
+        recent_missions = Mission.objects.order_by('-date_depart')[:10]
+        mission_data = []
+        for mission in recent_missions:
+            mission_data.append({
+                'id': mission.id,
+                'code': mission.code,
+                'vehicle': f"{mission.vehicle.marque} {mission.vehicle.modele}",
+                'driver': mission.driver.user_profile.user.username,
+                'status': mission.statut,
+                'date': mission.date_depart,
+                'distance': mission.distance_km
+            })
+        
+        # Alertes récentes
+        recent_alerts = Alert.objects.order_by('-date_alerte')[:10]
+        alert_data = []
+        for alert in recent_alerts:
+            alert_data.append({
+                'id': alert.id,
+                'code': alert.code,
+                'type': alert.type_alerte,
+                'message': alert.message,
+                'niveau': alert.niveau,
+                'date': alert.date_alerte,
+                'resolue': alert.resolue
+            })
+        
+        # Dépenses récentes
+        recent_expenses = Expense.objects.order_by('-date')[:10]
+        expense_data = []
+        for expense in recent_expenses:
+            expense_data.append({
+                'id': expense.id,
+                'vehicle': f"{expense.vehicle.marque} {expense.vehicle.modele}",
+                'type': expense.type,
+                'montant': float(expense.montant),
+                'date': expense.date,
+                'description': expense.description
+            })
+        
+        return Response({
+            'missions': mission_data,
+            'alerts': alert_data,
+            'expenses': expense_data
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def global_search(request):
+    """Endpoint de recherche globale"""
+    query = request.GET.get('q', '').strip()
+    if not query or len(query) < 2:
+        return Response({'error': 'La recherche doit contenir au moins 2 caractères'}, status=400)
+    
+    try:
+        results = {
+            'vehicles': [],
+            'drivers': [],
+            'missions': []
+        }
+        
+        # Recherche dans les véhicules
+        vehicles = Vehicle.objects.filter(
+            models.Q(marque__icontains=query) |
+            models.Q(modele__icontains=query) |
+            models.Q(immatriculation__icontains=query) |
+            models.Q(numero_chassis__icontains=query)
+        )[:5]
+        
+        for vehicle in vehicles:
+            results['vehicles'].append({
+                'id': vehicle.id,
+                'marque': vehicle.marque,
+                'modele': vehicle.modele,
+                'immatriculation': vehicle.immatriculation,
+                'type': 'vehicle'
+            })
+        
+        # Recherche dans les conducteurs
+        drivers = Driver.objects.filter(
+            models.Q(user_profile__user__username__icontains=query) |
+            models.Q(user_profile__user__email__icontains=query) |
+            models.Q(numero_permis__icontains=query)
+        )[:5]
+        
+        for driver in drivers:
+            results['drivers'].append({
+                'id': driver.id,
+                'username': driver.user_profile.user.username,
+                'email': driver.user_profile.user.email,
+                'numero_permis': driver.numero_permis,
+                'type': 'driver'
+            })
+        
+        # Recherche dans les missions
+        missions = Mission.objects.filter(
+            models.Q(code__icontains=query) |
+            models.Q(raison__icontains=query) |
+            models.Q(lieu_depart__icontains=query) |
+            models.Q(lieu_arrivee__icontains=query)
+        )[:5]
+        
+        for mission in missions:
+            results['missions'].append({
+                'id': mission.id,
+                'code': mission.code,
+                'raison': mission.raison,
+                'statut': mission.statut,
+                'date_depart': mission.date_depart,
+                'type': 'mission'
+            })
+        
+        return Response(results)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def all_drivers_positions(request):
+    """
+    Récupère les dernières positions de tous les conducteurs avec leurs informations
+    """
+    # Récupérer tous les conducteurs avec leurs dernières positions
+    drivers = Driver.objects.all()
+    result = []
+    
+    for driver in drivers:
+        # Récupérer la dernière position
+        last_position = Position.objects.filter(driver=driver).order_by('-timestamp').first()
+        
+        # Déterminer si le conducteur est en ligne (position récente dans les 5 dernières minutes)
+        is_online = False
+        if last_position:
+            time_diff = timezone.now() - last_position.timestamp
+            is_online = time_diff.total_seconds() < 300  # 5 minutes
+        
+        driver_data = {
+            'id': driver.id,
+            'username': driver.user_profile.user.username if driver.user_profile else 'Inconnu',
+            'first_name': driver.user_profile.user.first_name if driver.user_profile and driver.user_profile.user else '',
+            'last_name': driver.user_profile.user.last_name if driver.user_profile and driver.user_profile.user else '',
+            'is_online': is_online,
+            'last_position': {
+                'latitude': float(last_position.latitude) if last_position else None,
+                'longitude': float(last_position.longitude) if last_position else None,
+                'timestamp': last_position.timestamp if last_position else None,
+            } if last_position else None
+        }
+        result.append(driver_data)
+    
+    return Response(result)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def driver_trips_history(request, driver_id):
+    """
+    Récupère l'historique des trajets d'un conducteur
+    """
+    try:
+        driver = Driver.objects.get(id=driver_id)
+    except Driver.DoesNotExist:
+        return Response({'error': 'Conducteur non trouvé'}, status=404)
+    
+    # Récupérer les missions du conducteur
+    missions = Mission.objects.filter(driver=driver).order_by('-date_depart')
+    
+    trips_data = []
+    for mission in missions:
+        trip_data = {
+            'id': mission.id,
+            'raison': mission.raison,
+            'lieu_depart': mission.lieu_depart,
+            'lieu_arrivee': mission.lieu_arrivee,
+            'date_depart': mission.date_depart,
+            'date_arrivee': mission.date_arrivee,
+            'statut': mission.statut,
+            'distance_km': mission.distance_km,
+            'depart_latitude': mission.depart_latitude,
+            'depart_longitude': mission.depart_longitude,
+            'arrivee_latitude': mission.arrivee_latitude,
+            'arrivee_longitude': mission.arrivee_longitude,
+        }
+        trips_data.append(trip_data)
+    
+    return Response(trips_data)

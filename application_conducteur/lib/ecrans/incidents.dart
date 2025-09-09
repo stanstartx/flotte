@@ -3,79 +3,99 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
 import 'package:intl/intl.dart';
 
-class HistoriquesPage extends StatefulWidget {
-  const HistoriquesPage({super.key});
+class IncidentsPage extends StatefulWidget {
+  const IncidentsPage({super.key});
 
   @override
-  State<HistoriquesPage> createState() => _HistoriquesPageState();
+  State<IncidentsPage> createState() => _IncidentsPageState();
 }
 
-class _HistoriquesPageState extends State<HistoriquesPage> {
-  // Couleurs alignées avec connexion.dart
-  final Color primaryColor = const Color(
-    0xFF1C6DD0,
-  ); // bleu principal connexion
-  final Color secondaryColor = const Color(0xFF4F9CF9); // bleu clair connexion
+class _IncidentsPageState extends State<IncidentsPage> {
+  final Color primaryColor = const Color(0xFF1C6DD0);
+  final Color secondaryColor = const Color(0xFF4F9CF9);
   final Color textPrimary = const Color(0xFF1A202C);
 
   DateTime? selectedDate;
-  int selectedTab = 0; // 0 = Missions, 1 = Trajets
+  String selectedVehicule = 'Tous';
+  final List<String> vehicules = [
+    'Tous',
+    'Toyota Hilux',
+    'Nissan Navara',
+    'Ford Ranger',
+  ];
 
-  // Historique des missions avec nom et statut
-  final List<Map<String, dynamic>> historiquesMissions = List.generate(6, (
-    index,
-  ) {
-    return {
-      'date': DateTime(2025, 6, 12 + index),
-      'nom': 'Mission ${index + 1}', // nom de la mission
-      'lieu': 'Yopougon → Cocody',
-      'statut': index % 2 == 0 ? 'Terminée' : 'Annulée',
-      'duree': '${30 + index * 5} min',
-      'conducteur': 'Jean Dupont',
-      'vehicule': 'AB-123-CD',
-      'commentaires':
-          index % 2 == 0
-              ? 'Mission effectuée sans encombre.'
-              : 'Annulée pour raisons météo.',
-    };
-  });
+  final List<Map<String, String>> incidents = [
+    {
+      'vehicule': 'Toyota Hilux',
+      'type': 'Panne moteur',
+      'date': '01/09/2025',
+      'heure': '08:45',
+      'statut': 'Non résolu',
+      'commentaires': 'Le moteur ne démarre pas.',
+    },
+    {
+      'vehicule': 'Toyota Hilux',
+      'type': 'Crevaison',
+      'date': '01/09/2025',
+      'heure': '12:00',
+      'statut': 'Résolu',
+      'commentaires': 'Changement de pneu effectué.',
+    },
+    {
+      'vehicule': 'Nissan Navara',
+      'type': 'Accident léger',
+      'date': '30/08/2025',
+      'heure': '14:30',
+      'statut': 'Résolu',
+      'commentaires': 'Rayure sur portière.',
+    },
+    {
+      'vehicule': 'Ford Ranger',
+      'type': 'Retard livraison',
+      'date': '29/08/2025',
+      'heure': '10:15',
+      'statut': 'Non résolu',
+      'commentaires': 'Traffic dense.',
+    },
+    {
+      'vehicule': 'Ford ',
+      'type': 'Defaut de materielle',
+      'date': '28/08/2025',
+      'heure': '10:15',
+      'statut': 'Non résolu',
+      'commentaires': 'Traffic dense.',
+    },
+    {
+      'vehicule': 'Mercedes',
+      'type': 'Retard livraison',
+      'date': '19/08/2025',
+      'heure': '10:15',
+      'statut': 'Non résolu',
+      'commentaires': 'Traffic dense.',
+    },
+  ];
 
-  // Historique des trajets avec statut variable
-  final List<Map<String, dynamic>> historiquesTrajets = List.generate(5, (
-    index,
-  ) {
-    return {
-      'date': DateTime(2025, 6, 15 + index),
-      'lieu': 'Plateau → Abobo',
-      'statut': index % 2 == 0 ? 'Effectué' : 'Retardé',
-      'duree': '${15 + index * 3} min',
-      'conducteur': 'Alice Konan',
-      'vehicule': 'ZX-987-WV',
-      'commentaires':
-          index % 2 == 0
-              ? 'Trajet effectué sans incident.'
-              : 'Trajet retardé pour travaux.',
-    };
-  });
+  List<Map<String, String>> get filteredIncidents {
+    final today = DateTime(2025, 9, 1);
+    return incidents.where((i) {
+      final vehiculeMatch =
+          selectedVehicule == 'Tous' || i['vehicule'] == selectedVehicule;
+      if (selectedDate != null) {
+        final parts = i['date']!.split('/');
+        final incidentDate = DateTime(
+          int.parse(parts[2]),
+          int.parse(parts[1]),
+          int.parse(parts[0]),
+        );
+        return vehiculeMatch && incidentDate == selectedDate;
+      }
+      return vehiculeMatch;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    bool isMobile = MediaQuery.of(context).size.width < 700;
-
-    List<Map<String, dynamic>> dataToShow =
-        selectedTab == 0 ? historiquesMissions : historiquesTrajets;
-
-    // Trier par date décroissante
-    dataToShow.sort((a, b) => b['date'].compareTo(a['date']));
-
-    List<Map<String, dynamic>> filtered =
-        selectedDate == null
-            ? dataToShow
-            : dataToShow.where((h) {
-              return h['date'].day == selectedDate!.day &&
-                  h['date'].month == selectedDate!.month &&
-                  h['date'].year == selectedDate!.year;
-            }).toList();
+    final isMobile = MediaQuery.of(context).size.width < 700;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -87,14 +107,13 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
                 elevation: 0,
                 iconTheme: IconThemeData(color: primaryColor),
                 title: Text(
-                  "Historique",
+                  "Incidents",
                   style: GoogleFonts.poppins(
                     color: textPrimary,
                     fontWeight: FontWeight.w600,
                     fontSize: 22,
                   ),
                 ),
-                centerTitle: false,
               )
               : null,
       body: Row(
@@ -114,12 +133,15 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
                     children: [
                       if (!isMobile)
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.start,
                           children: [
-                            Icon(Icons.history, size: 32, color: primaryColor),
+                            Icon(
+                              Icons.report_problem,
+                              size: 32,
+                              color: primaryColor,
+                            ),
                             const SizedBox(width: 12),
                             Text(
-                              "Historique",
+                              "Incidents",
                               style: GoogleFonts.poppins(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w600,
@@ -128,24 +150,29 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
                             ),
                           ],
                         ),
-                      if (!isMobile) const SizedBox(height: 16),
-
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          _buildTabButton("Missions", 0, isMobile),
-                          _buildTabButton("Trajets", 1, isMobile),
-                        ],
-                      ),
-
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       Wrap(
                         spacing: 16,
                         runSpacing: 12,
-                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
+                          DropdownButton<String>(
+                            value: selectedVehicule,
+                            items:
+                                vehicules
+                                    .map(
+                                      (v) => DropdownMenuItem(
+                                        value: v,
+                                        child: Text(v),
+                                      ),
+                                    )
+                                    .toList(),
+                            onChanged: (v) {
+                              setState(() {
+                                selectedVehicule = v!;
+                              });
+                            },
+                          ),
                           ElevatedButton.icon(
                             onPressed: _pickDate,
                             style: ElevatedButton.styleFrom(
@@ -154,11 +181,11 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
+                              elevation: 0,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 20,
                                 vertical: 14,
                               ),
-                              elevation: 0,
                             ),
                             icon: const Icon(Icons.date_range_outlined),
                             label: Text(
@@ -173,64 +200,33 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
                               ),
                             ),
                           ),
-                          TextButton.icon(
-                            onPressed: () {
-                              // TODO: Export PDF global
-                            },
-                            icon: const Icon(Icons.picture_as_pdf_outlined),
-                            label: const Text("Exporter PDF"),
-                            style: TextButton.styleFrom(
-                              foregroundColor: primaryColor,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 18,
-                                vertical: 14,
-                              ),
-                            ),
-                          ),
                           if (selectedDate != null)
                             TextButton(
-                              onPressed: () {
-                                setState(() => selectedDate = null);
-                              },
+                              onPressed:
+                                  () => setState(() => selectedDate = null),
                               child: const Text("Réinitialiser"),
                             ),
                         ],
                       ),
-
                       const SizedBox(height: 28),
 
                       Column(
                         children:
-                            filtered
-                                .map(
-                                  (h) => Container(
-                                    margin: const EdgeInsets.only(bottom: 20),
-                                    width: isMobile ? double.infinity : 700,
-                                    child: _MissionCard(
-                                      date: DateFormat(
-                                        'dd MMM yyyy',
-                                      ).format(h['date']),
-                                      lieu:
-                                          selectedTab == 0
-                                              ? h['nom']
-                                              : h['lieu'],
-                                      statut: h['statut'],
-                                      couleurStatut:
-                                          selectedTab == 0
-                                              ? (h['statut'] == 'Terminée'
-                                                  ? primaryColor
-                                                  : Colors.redAccent)
-                                              : (h['statut'] == 'Effectué'
-                                                  ? primaryColor
-                                                  : Colors.orangeAccent),
-                                      duree: h['duree'],
-                                      conducteur: h['conducteur'],
-                                      vehicule: h['vehicule'],
-                                      commentaires: h['commentaires'],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
+                            filteredIncidents.map((incident) {
+                              final statutColor =
+                                  incident['statut'] == 'Résolu'
+                                      ? Colors.green
+                                      : Colors.redAccent;
+                              return _IncidentCard(
+                                vehicule: incident['vehicule']!,
+                                type: incident['type']!,
+                                date: incident['date']!,
+                                heure: incident['heure']!,
+                                statut: incident['statut']!,
+                                commentaires: incident['commentaires']!,
+                                couleurStatut: statutColor,
+                              );
+                            }).toList(),
                       ),
                     ],
                   ),
@@ -243,91 +239,40 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
     );
   }
 
-  Widget _buildTabButton(String label, int index, bool isMobile) {
-    return SizedBox(
-      width: isMobile ? (MediaQuery.of(context).size.width / 2) - 32 : null,
-      child: ElevatedButton(
-        onPressed: () {
-          setState(() {
-            selectedTab = index;
-            selectedDate = null;
-          });
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor:
-              selectedTab == index ? primaryColor : Colors.grey.shade200,
-          foregroundColor: selectedTab == index ? Colors.white : textPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          elevation: 0,
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
-        ),
-      ),
-    );
-  }
-
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
       initialDate: selectedDate ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
-      helpText: 'Sélectionnez une date',
-      cancelText: 'Annuler',
-      confirmText: 'Valider',
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: primaryColor,
-              onPrimary: Colors.white,
-              onSurface: textPrimary,
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: primaryColor),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
-
-    if (picked != null) {
-      setState(() {
-        selectedDate = picked;
-      });
-    }
+    if (picked != null) setState(() => selectedDate = picked);
   }
 }
 
-class _MissionCard extends StatelessWidget {
-  final String date;
-  final String lieu;
-  final String statut;
-  final Color couleurStatut;
-  final String duree;
-  final String conducteur;
+class _IncidentCard extends StatelessWidget {
   final String vehicule;
+  final String type;
+  final String date;
+  final String heure;
+  final String statut;
   final String commentaires;
+  final Color couleurStatut;
 
-  const _MissionCard({
-    required this.date,
-    required this.lieu,
-    required this.statut,
-    required this.couleurStatut,
-    required this.duree,
-    required this.conducteur,
+  const _IncidentCard({
     required this.vehicule,
+    required this.type,
+    required this.date,
+    required this.heure,
+    required this.statut,
     required this.commentaires,
+    required this.couleurStatut,
   });
 
   @override
   Widget build(BuildContext context) {
+    bool isMobile = MediaQuery.of(context).size.width < 700;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       padding: const EdgeInsets.all(24),
@@ -345,23 +290,22 @@ class _MissionCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.directions_car, color: couleurStatut, size: 36),
+          Icon(Icons.report_problem, color: couleurStatut, size: 36),
           const SizedBox(width: 20),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  lieu,
+                  '$vehicule - $type',
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF2D3748),
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  date,
+                  '$date à $heure',
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     color: Colors.grey.shade600,
@@ -398,7 +342,6 @@ class _MissionCard extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
             ),
-            elevation: 20,
             child: Container(
               constraints: BoxConstraints(
                 maxWidth:
@@ -412,7 +355,6 @@ class _MissionCard extends StatelessWidget {
               ),
               child: SingleChildScrollView(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       "Détails",
@@ -423,19 +365,17 @@ class _MissionCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _detailRow(Icons.calendar_today_outlined, "Date :", date),
-                    _detailRow(Icons.place_outlined, "Trajet :", lieu),
+                    _detailRow(
+                      Icons.calendar_today_outlined,
+                      "Date :",
+                      "$date à $heure",
+                    ),
                     _detailRow(
                       Icons.directions_car_filled_outlined,
                       "Véhicule :",
                       vehicule,
                     ),
-                    _detailRow(Icons.access_time_outlined, "Durée :", duree),
-                    _detailRow(
-                      Icons.person_outline,
-                      "Conducteur :",
-                      conducteur,
-                    ),
+                    _detailRow(Icons.report_problem, "Type :", type),
                     const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerLeft,
@@ -444,7 +384,6 @@ class _MissionCard extends StatelessWidget {
                         style: GoogleFonts.poppins(
                           fontWeight: FontWeight.w600,
                           fontSize: 16,
-                          color: const Color(0xFF2D3748),
                         ),
                       ),
                     ),
@@ -469,28 +408,9 @@ class _MissionCard extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         ElevatedButton.icon(
-                          onPressed: () {
-                            // TODO : Logique d'impression
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: couleurStatut.withOpacity(0.1),
-                            foregroundColor: couleurStatut,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            elevation: 0,
-                          ),
+                          onPressed: () {},
                           icon: const Icon(Icons.print),
                           label: const Text("Imprimer"),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            // TODO : Logique d'export PDF
-                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: couleurStatut.withOpacity(0.1),
                             foregroundColor: couleurStatut,
@@ -503,8 +423,23 @@ class _MissionCard extends StatelessWidget {
                             ),
                             elevation: 0,
                           ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: () {},
                           icon: const Icon(Icons.picture_as_pdf),
                           label: const Text("Exporter"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: couleurStatut.withOpacity(0.1),
+                            foregroundColor: couleurStatut,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
                         ),
                       ],
                     ),
@@ -542,7 +477,6 @@ class _MissionCard extends StatelessWidget {
             style: GoogleFonts.poppins(
               fontWeight: FontWeight.w600,
               fontSize: 15,
-              color: const Color(0xFF2D3748),
             ),
           ),
           const SizedBox(width: 8),

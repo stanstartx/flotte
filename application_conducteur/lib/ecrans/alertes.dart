@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:intl/intl.dart';
 
 class AlertesPage extends StatefulWidget {
   const AlertesPage({super.key});
@@ -13,53 +11,243 @@ class AlertesPage extends StatefulWidget {
 }
 
 class _AlertesPageState extends State<AlertesPage> {
-  bool isMobile = false;
-  final Color greenPrimary = const Color(0xFF2F855A);
-  final Color greenLight = const Color(0xFF81E6D9);
-  final Color greyLight = const Color(0xFFF0F4F8);
+  final Color primaryColor = const Color(0xFF1C6DD0);
+  final Color secondaryColor = const Color(0xFF4F9CF9);
   final Color textPrimary = const Color(0xFF1A202C);
 
-  List<dynamic> alertes = [];
-  bool _isLoading = true;
-  String? _error;
+  int selectedTab = 0; // 0=Toutes, 1=Critique, 2=Warning
+
+  List<Map<String, dynamic>> alertes = [
+    {
+      'type': 'Permis',
+      'niveau': 'warning',
+      'message': 'Permis expirant dans 10 jours',
+      'vehicule': 'AB-123-CD',
+      'conducteur': 'John Doe',
+      'date': DateTime(2025, 8, 28),
+    },
+    {
+      'type': 'Assurance',
+      'niveau': 'critique',
+      'message': 'Assurance expirée',
+      'vehicule': 'XY-456-ZW',
+      'conducteur': 'Jane Smith',
+      'date': DateTime(2025, 8, 20),
+    },
+    {
+      'type': 'Entretien',
+      'niveau': 'warning',
+      'message': 'Vidange à effectuer',
+      'vehicule': 'CD-789-EF',
+      'conducteur': 'Alice Konan',
+      'date': DateTime(2025, 8, 25),
+    },
+    {
+      'type': 'Contrôle_technique',
+      'niveau': 'critique',
+      'message': 'CT expiré',
+      'vehicule': 'GH-321-IJ',
+      'conducteur': 'Bob Martin',
+      'date': DateTime(2025, 8, 18),
+    },
+    {
+      'type': 'Permis',
+      'niveau': '',
+      'message': 'Permis vérifié récemment',
+      'vehicule': 'KL-654-MN',
+      'conducteur': 'John Doe',
+      'date': DateTime(2025, 8, 22),
+    },
+  ];
 
   @override
-  void initState() {
-    super.initState();
-    _fetchAlertes();
+  Widget build(BuildContext context) {
+    bool isMobile = MediaQuery.of(context).size.width < 700;
+
+    // Filtrer par onglet
+    List<Map<String, dynamic>> filtered =
+        selectedTab == 0
+            ? alertes
+            : alertes
+                .where(
+                  (a) =>
+                      a['niveau'].toLowerCase() ==
+                      (selectedTab == 1 ? 'critique' : 'warning'),
+                )
+                .toList();
+
+    // Trier par date décroissante
+    filtered.sort((a, b) => (b['date'] as DateTime).compareTo(a['date']));
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      drawer: isMobile ? const Menu() : null,
+      appBar:
+          isMobile
+              ? AppBar(
+                backgroundColor: Colors.white,
+                elevation: 0,
+                iconTheme: IconThemeData(color: primaryColor),
+                title: Text(
+                  "Alertes",
+                  style: GoogleFonts.poppins(
+                    color: textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 22,
+                  ),
+                ),
+              )
+              : null,
+      body: Row(
+        children: [
+          if (!isMobile) const Menu(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 16 : 32,
+                vertical: isMobile ? 20 : 40,
+              ),
+              child: Align(
+                alignment: Alignment.topCenter, // <-- forcé en haut
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!isMobile)
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.notifications,
+                              size: 32,
+                              color: primaryColor,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              "Alertes",
+                              style: GoogleFonts.poppins(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w600,
+                                color: textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      if (!isMobile) const SizedBox(height: 24),
+
+                      // Onglets
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          _buildTabButton("Toutes", 0, isMobile),
+                          _buildTabButton("Critiques", 1, isMobile),
+                          _buildTabButton("Warnings", 2, isMobile),
+                        ],
+                      ),
+
+                      const SizedBox(height: 28),
+
+                      // Liste des alertes
+                      filtered.isEmpty
+                          ? Padding(
+                            padding: const EdgeInsets.all(40.0),
+                            child: Center(
+                              child: Text(
+                                "Aucune alerte",
+                                style: GoogleFonts.poppins(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          )
+                          : Column(
+                            children:
+                                filtered
+                                    .map(
+                                      (a) => _AlerteCard(
+                                        type: a['type'],
+                                        niveau: a['niveau'],
+                                        message: a['message'],
+                                        vehicule: a['vehicule'],
+                                        conducteur: a['conducteur'],
+                                        date: DateFormat(
+                                          'dd MMM yyyy',
+                                        ).format(a['date']),
+                                      ),
+                                    )
+                                    .toList(),
+                          ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  Future<void> _fetchAlertes() async {
-    setState(() { _isLoading = true; _error = null; });
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      final backendUrl = prefs.getString('backend_url') ?? 'http://localhost:8000';
-      if (token == null) throw Exception('Utilisateur non authentifié');
-      final url = Uri.parse('$backendUrl/api/alerts/mes_alertes/');
-      final response = await http.get(url, headers: {'Authorization': 'Bearer $token'});
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          alertes = data;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _error = 'Erreur: ${response.body}';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _error = 'Erreur: $e';
-        _isLoading = false;
-      });
+  Widget _buildTabButton(String label, int index, bool isMobile) {
+    return SizedBox(
+      width: isMobile ? (MediaQuery.of(context).size.width / 3) - 20 : null,
+      child: ElevatedButton(
+        onPressed: () {
+          setState(() {
+            selectedTab = index;
+          });
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor:
+              selectedTab == index ? primaryColor : Colors.grey.shade200,
+          foregroundColor: selectedTab == index ? Colors.white : textPrimary,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          elevation: 0,
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlerteCard extends StatelessWidget {
+  final String type;
+  final String niveau;
+  final String message;
+  final String vehicule;
+  final String conducteur;
+  final String date;
+
+  const _AlerteCard({
+    required this.type,
+    required this.niveau,
+    required this.message,
+    required this.vehicule,
+    required this.conducteur,
+    required this.date,
+  });
+
+  Color _getColorForNiveau() {
+    switch (niveau.toLowerCase()) {
+      case 'critique':
+        return Colors.red;
+      case 'warning':
+        return Colors.orange;
+      default:
+        return const Color(0xFF1C6DD0);
     }
   }
 
-  IconData _getIconForType(String type) {
-    switch (type) {
+  IconData _getIconForType() {
+    switch (type.toLowerCase()) {
       case 'permis':
         return Icons.badge_outlined;
       case 'assurance':
@@ -73,101 +261,185 @@ class _AlertesPageState extends State<AlertesPage> {
     }
   }
 
-  Color _getColorForNiveau(String niveau) {
-    switch (niveau) {
-      case 'critique':
-        return Colors.red;
-      case 'warning':
-        return Colors.orange;
-      default:
-        return greenPrimary;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    isMobile = MediaQuery.of(context).size.width < 700;
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: isMobile
-          ? AppBar(
-              backgroundColor: Colors.white,
-              elevation: 8,
-              shadowColor: greenPrimary.withOpacity(0.13),
-              iconTheme: IconThemeData(color: textPrimary),
-              title: Text(
-                'Alertes',
-                style: GoogleFonts.poppins(
-                  color: textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 22,
+    final couleur = _getColorForNiveau();
+    bool isMobile = MediaQuery.of(context).size.width < 700;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(24),
+      constraints: BoxConstraints(maxWidth: 700),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.3),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 14,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(_getIconForType(), color: couleur, size: 36),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message,
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF2D3748),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Véhicule: $vehicule - Conducteur: $conducteur',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  date,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => _showDetails(context, couleur),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: couleur.withOpacity(0.1),
+              foregroundColor: couleur,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+            child: const Text("Voir détails"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDetails(BuildContext context, Color couleur) {
+    bool isMobile = MediaQuery.of(context).size.width < 700;
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            elevation: 20,
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth:
+                    isMobile ? MediaQuery.of(context).size.width * 0.9 : 500,
+                maxHeight: MediaQuery.of(context).size.height * 0.8,
+              ),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "Détails",
+                      style: GoogleFonts.poppins(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: couleur,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _detailRow(
+                      Icons.notification_important,
+                      "Type:",
+                      type,
+                      couleur,
+                    ),
+                    _detailRow(Icons.warning, "Niveau:", niveau, couleur),
+                    _detailRow(
+                      Icons.directions_car,
+                      "Véhicule:",
+                      vehicule,
+                      couleur,
+                    ),
+                    _detailRow(
+                      Icons.person,
+                      "Conducteur:",
+                      conducteur,
+                      couleur,
+                    ),
+                    _detailRow(Icons.message, "Message:", message, couleur),
+                    _detailRow(Icons.date_range, "Date:", date, couleur),
+                    const SizedBox(height: 24),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text(
+                          "Fermer",
+                          style: GoogleFonts.poppins(
+                            color: couleur,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            )
-          : null,
-      drawer: isMobile ? const Menu() : null,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!, style: TextStyle(color: Colors.red)))
-              : RefreshIndicator(
-                  onRefresh: _fetchAlertes,
-                  child: alertes.isEmpty
-                      ? Center(
-                          child: Text(
-                            'Aucune alerte pour le moment.',
-                            style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey[600]),
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                          itemCount: alertes.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 16),
-                          itemBuilder: (context, index) {
-                            final alerte = alertes[index];
-                            return Card(
-                              elevation: 2,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              child: ListTile(
-                                leading: Icon(_getIconForType(alerte['type_alerte'] ?? ''), color: _getColorForNiveau(alerte['niveau'] ?? ''), size: 36),
-                                title: Text(
-                                  alerte['message'] ?? '',
-                                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 16),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (alerte['vehicle'] != null)
-                                      Text('Véhicule : ${alerte['vehicle']}', style: TextStyle(color: Colors.grey[700])),
-                                    if (alerte['driver'] != null)
-                                      Text('Conducteur : ${alerte['driver']}', style: TextStyle(color: Colors.grey[700])),
-                                    Row(
-                                      children: [
-                                        Chip(
-                                          label: Text((alerte['type_alerte'] ?? '').toUpperCase()),
-                                          backgroundColor: greenLight.withOpacity(0.2),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Chip(
-                                          label: Text((alerte['niveau'] ?? '').toUpperCase()),
-                                          backgroundColor: _getColorForNiveau(alerte['niveau'] ?? '').withOpacity(0.15),
-                                          labelStyle: TextStyle(color: _getColorForNiveau(alerte['niveau'] ?? '')),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        if (alerte['date_alerte'] != null)
-                                          Text(
-                                            (alerte['date_alerte'] as String).substring(0, 10),
-                                            style: TextStyle(color: Colors.grey[600]),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
+            ),
+          ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value, Color couleur) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: couleur, size: 20),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              fontSize: 15,
+              color: const Color(0xFF2D3748),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.poppins(
+                fontSize: 15,
+                color: const Color(0xFF4A5568),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

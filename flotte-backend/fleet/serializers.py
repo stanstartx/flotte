@@ -25,12 +25,24 @@ from django.core.exceptions import ObjectDoesNotExist
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'is_active', 'password']
-        extra_kwargs = {'password': {'write_only': True, 'required': False}}
+        fields = ['id', 'email', 'first_name', 'last_name', 'is_active', 'password']
+        extra_kwargs = {'password': {'write_only': True, 'required': True}}
 
     def create(self, validated_data):
-        user = User.objects.create_user(**validated_data)
-        # Ajouter l'utilisateur au groupe conducteur
+        email = validated_data.get("email")
+        password = validated_data.pop("password", None)
+
+        user = User(
+            username=email,   # <-- username forcé = email
+            email=email,
+            first_name=validated_data.get("first_name", ""),
+            last_name=validated_data.get("last_name", ""),
+            is_active=validated_data.get("is_active", True),
+        )
+        if password:
+            user.set_password(password)
+        user.save()
+
         conducteur_group = Group.objects.get(name='conducteur')
         user.groups.add(conducteur_group)
         return user
@@ -40,6 +52,7 @@ class UserSerializer(serializers.ModelSerializer):
             password = validated_data.pop('password')
             instance.set_password(password)
         return super().update(instance, validated_data)
+
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -54,12 +67,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if obj.photo:
             url = obj.photo.url
-            # Si l'URL n'est pas absolue, la construire manuellement
             if request is not None:
                 if not url.startswith('http'):
                     return request.build_absolute_uri(url)
                 return url
-            # Fallback absolu en dur (à adapter si besoin)
             if url.startswith('/'):
                 return f'http://localhost:8000{url}'
             return url
@@ -68,9 +79,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user_data = validated_data.pop('user')
         user = UserSerializer().create(user_data)
-        # Récupérer le profil existant créé par le signal
         profile = UserProfile.objects.get(user=user)
-        # Mettre à jour les champs du profil
         profile.telephone = validated_data.get('telephone', '')
         profile.adresse = validated_data.get('adresse', '')
         profile.role = 'conducteur'
@@ -81,12 +90,19 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if 'user' in validated_data:
             user_data = validated_data.pop('user')
             user = instance.user
-            # Ne pas mettre à jour le username lors de la mise à jour
-            if 'username' in user_data:
-                del user_data['username']
-            UserSerializer().update(user, user_data)
-        
-        # Mettre à jour les champs du profil
+            if 'email' in user_data:
+                user.email = user_data['email']
+                user.username = user_data['email']  # garder synchro avec username
+            if 'first_name' in user_data:
+                user.first_name = user_data['first_name']
+            if 'last_name' in user_data:
+                user.last_name = user_data['last_name']
+            if 'is_active' in user_data:
+                user.is_active = user_data['is_active']
+            if 'password' in user_data:
+                user.set_password(user_data['password'])
+            user.save()
+
         instance.telephone = validated_data.get('telephone', instance.telephone)
         instance.adresse = validated_data.get('adresse', instance.adresse)
         instance.save()
@@ -101,7 +117,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class DriverSerializer(serializers.ModelSerializer):
     user_profile = UserProfileSerializer(read_only=True)
-    user_profile_id = serializers.PrimaryKeyRelatedField(queryset=UserProfile.objects.all(), write_only=True, required=False)
+    user_profile_id = serializers.PrimaryKeyRelatedField(
+        queryset=UserProfile.objects.all(), write_only=True, required=False
+    )
     user_profile_data = UserProfileSerializer(write_only=True, required=False)
 
     class Meta:
@@ -113,48 +131,39 @@ class DriverSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        print("[DriverSerializer] Début de create. validated_data:", validated_data)
         user_profile = validated_data.pop('user_profile_id', None)
         user_profile_data = validated_data.pop('user_profile_data', None)
-        print("[DriverSerializer] user_profile:", user_profile)
-        print("[DriverSerializer] user_profile_data:", user_profile_data)
 
         from .models import Driver
-        from django.core.exceptions import ObjectDoesNotExist
 
         if user_profile:
-            print("[DriverSerializer] Mode user_profile_id")
             if hasattr(user_profile, 'driver'):
-                print("[DriverSerializer] Un conducteur existe déjà pour ce profil utilisateur.")
                 raise serializers.ValidationError("Un conducteur existe déjà pour ce profil utilisateur.")
-            driver = Driver.objects.create(user_profile=user_profile, **validated_data)
-            print("[DriverSerializer] Conducteur créé avec user_profile_id:", driver)
-            return driver
+            return Driver.objects.create(user_profile=user_profile, **validated_data)
 
         elif user_profile_data:
-            print("[DriverSerializer] Mode user_profile_data")
             user_data = user_profile_data.pop('user')
-            print("[DriverSerializer] user_data:", user_data)
+            email = user_data.get('email')
+
             try:
-                user = User.objects.get(username=user_data['username'])
-                print("[DriverSerializer] Utilisateur existant trouvé:", user)
+                user = User.objects.get(email=email)
                 user.first_name = user_data.get('first_name', user.first_name)
                 user.last_name = user_data.get('last_name', user.last_name)
-                user.email = user_data.get('email', user.email)
                 user.is_active = user_data.get('is_active', user.is_active)
+                if 'password' in user_data:
+                    user.set_password(user_data['password'])
                 user.save()
             except ObjectDoesNotExist:
-                print("[DriverSerializer] Création d'un nouvel utilisateur")
-                # Mot de passe par défaut si non fourni
                 password = user_data.get('password') or 'password123'
                 user = User.objects.create_user(
-                    username=user_data['username'],
+                    username=email,
+                    email=email,
                     first_name=user_data.get('first_name', ''),
                     last_name=user_data.get('last_name', ''),
-                    email=user_data.get('email', ''),
                     is_active=user_data.get('is_active', True),
                     password=password,
                 )
+
             user_profile, created = UserProfile.objects.get_or_create(
                 user=user,
                 defaults={
@@ -163,26 +172,17 @@ class DriverSerializer(serializers.ModelSerializer):
                     'role': user_profile_data.get('role', 'conducteur'),
                 }
             )
-            print(f"[DriverSerializer] UserProfile {'créé' if created else 'trouvé'}:", user_profile)
             if hasattr(user_profile, 'driver'):
-                print("[DriverSerializer] Un conducteur existe déjà pour ce profil utilisateur (après get_or_create).")
                 raise serializers.ValidationError("Un conducteur existe déjà pour ce profil utilisateur.")
             user_profile.telephone = user_profile_data.get('telephone', user_profile.telephone)
             user_profile.adresse = user_profile_data.get('adresse', user_profile.adresse)
             user_profile.role = user_profile_data.get('role', user_profile.role)
             user_profile.save()
-            driver = Driver.objects.create(user_profile=user_profile, **validated_data)
-            print("[DriverSerializer] Conducteur créé avec user_profile_data:", driver)
-            return driver
-        else:
-            print("[DriverSerializer] Erreur: user_profile_id ou user_profile_data requis")
-            raise serializers.ValidationError("user_profile_id ou user_profile_data requis")
 
-    def update(self, instance, validated_data):
-        if 'user_profile' in validated_data:
-            user_profile_data = validated_data.pop('user_profile')
-            UserProfileSerializer().update(instance.user_profile, user_profile_data)
-        return super().update(instance, validated_data)
+            return Driver.objects.create(user_profile=user_profile, **validated_data)
+
+        else:
+            raise serializers.ValidationError("user_profile_id ou user_profile_data requis")
 
 
 class VehicleSerializer(serializers.ModelSerializer):

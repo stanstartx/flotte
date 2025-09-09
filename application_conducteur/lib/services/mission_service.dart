@@ -1,11 +1,13 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'error_handler_service.dart';
 import 'cache_service.dart';
+import '../config.dart';
+import 'http_client.dart';
 
 class MissionService {
-  static const String baseUrl = 'http://localhost:8000/api/conducteur/missions/';
+  static const String basePath = 'conducteur/missions/';
 
   // Récupérer les missions du conducteur connecté avec cache et gestion d'erreurs
   static Future<List<Map<String, dynamic>>> fetchMissions({bool forceRefresh = false}) async {
@@ -32,16 +34,13 @@ class MissionService {
     if (token == null) throw Exception('Token non trouvé');
     if (driverId == null) throw Exception('ID conducteur non trouvé');
     
-    final response = await http.get(
-      Uri.parse('${baseUrl}?conducteur=$driverId'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    ).timeout(const Duration(seconds: 10));
-    
+    final dio = HttpClient.instance;
+    final response = await dio.get(
+      '$basePath',
+      queryParameters: {'conducteur': driverId},
+    );
     if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
+      final List<dynamic> data = response.data as List<dynamic>;
       return List<Map<String, dynamic>>.from(data.map((m) {
         final map = Map<String, dynamic>.from(m);
         map['reponse_conducteur'] = m['reponse_conducteur'];
@@ -62,14 +61,8 @@ class MissionService {
         final token = prefs.getString('token');
         if (token == null) throw Exception('Token non trouvé');
         
-        final url = Uri.parse('$baseUrl$missionId/accepter/');
-        final response = await http.post(
-          url,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-        ).timeout(const Duration(seconds: 10));
+        final dio = HttpClient.instance;
+        final response = await dio.post('$basePath$missionId/accepter/');
         
         if (response.statusCode == 200) {
           // Invalider le cache des missions
@@ -94,14 +87,8 @@ class MissionService {
         final token = prefs.getString('token');
         if (token == null) throw Exception('Token non trouvé');
         
-        final url = Uri.parse('$baseUrl$missionId/refuser/');
-        final response = await http.post(
-          url,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-        ).timeout(const Duration(seconds: 10));
+        final dio = HttpClient.instance;
+        final response = await dio.post('$basePath$missionId/refuser/');
         
         if (response.statusCode == 200) {
           // Invalider le cache des missions
@@ -126,20 +113,12 @@ class MissionService {
         final token = prefs.getString('token');
         if (token == null) throw Exception('Token non trouvé');
         
-        final url = Uri.parse('$baseUrl$missionId/terminer/');
+        final dio = HttpClient.instance;
         final body = <String, dynamic>{};
         if (commentaire != null) {
           body['commentaire'] = commentaire;
         }
-        
-        final response = await http.post(
-          url,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(body),
-        ).timeout(const Duration(seconds: 10));
+        final response = await dio.post('$basePath$missionId/terminer/', data: body);
         
         if (response.statusCode == 200) {
           // Invalider le cache des missions
