@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:application_conducteur/config.dart';
+import 'package:application_conducteur/services/trips_service.dart';
 
 class TrajetsPage extends StatefulWidget {
   const TrajetsPage({super.key});
@@ -13,32 +14,9 @@ class TrajetsPage extends StatefulWidget {
 
 class _TrajetsPageState extends State<TrajetsPage>
     with TickerProviderStateMixin {
-  final List<Map<String, dynamic>> trajets = [
-    {
-      'date': '18 Juin 2025',
-      'heure': '08:00 - 10:15',
-      'depart': 'Abidjan Plateau',
-      'arrivee': 'Yopougon Zone Industrielle',
-      'distance': '12 km',
-      'statut': 'Réalisé',
-    },
-    {
-      'date': '17 Juin 2025',
-      'heure': '14:00 - 15:00',
-      'depart': 'Treichville',
-      'arrivee': 'Marcory Résidentiel',
-      'distance': '7 km',
-      'statut': 'En attente',
-    },
-    {
-      'date': '02 Mai 2025',
-      'heure': '09:00 - 10:00',
-      'depart': 'Abidjan Plateau',
-      'arrivee': 'Koumassi',
-      'distance': '9 km',
-      'statut': 'Annulé',
-    },
-  ];
+  List<Map<String, dynamic>> trajets = [];
+  bool _loading = true;
+  String? _error;
 
   late TabController _tabController;
   String searchQuery = "";
@@ -47,6 +25,52 @@ class _TrajetsPageState extends State<TrajetsPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _fetchTrips();
+  }
+
+  Future<void> _fetchTrips() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await TripsService.fetchDriverTrips();
+      final mapped = data.map<Map<String, dynamic>>((t) {
+        final map = Map<String, dynamic>.from(t);
+        final depart = (map['depart'] ?? map['start_location'] ?? map['origin'] ?? '').toString();
+        final arrivee = (map['arrivee'] ?? map['end_location'] ?? map['destination'] ?? '').toString();
+        final distanceKm = (map['distance_km'] ?? map['distance'] ?? '').toString();
+        final status = (map['statut'] ?? map['status'] ?? '').toString();
+        String heure = '';
+        if (map['heure'] != null) {
+          heure = map['heure'].toString();
+        } else if (map['start_time'] != null && map['end_time'] != null) {
+          heure = '${map['start_time']} - ${map['end_time']}';
+        }
+        String dateStr = '';
+        final dateRaw = map['date'] ?? map['started_at'];
+        if (dateRaw is String) {
+          dateStr = dateRaw;
+        }
+        return {
+          'date': dateStr,
+          'heure': heure,
+          'depart': depart,
+          'arrivee': arrivee,
+          'distance': distanceKm.toString().endsWith('km') ? distanceKm : '${distanceKm} km',
+          'statut': status,
+        };
+      }).toList();
+      setState(() {
+        trajets = mapped;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
   }
 
   Color getStatusColor(String status) {
@@ -517,7 +541,7 @@ class _TrajetsPageState extends State<TrajetsPage>
     final groupedByStatus = groupByStatus(filteredTrajets);
 
     int totalTrajets = trajets.length;
-    int totalRealises = trajets.where((t) => t['statut'] == 'Réalisé').length;
+    int totalRealises = trajets.where((t) => t['statut'] == 'Réalisé' || t['statut'] == 'Effectué' || t['statut'] == 'Terminé').length;
     int totalDistance = trajets.fold<int>(0, (prev, t) {
       String km = t['distance'].replaceAll(' km', '');
       return prev + int.tryParse(km)!;
@@ -541,7 +565,20 @@ class _TrajetsPageState extends State<TrajetsPage>
                 ),
               )
               : null,
-      body: Row(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Erreur: $_error', style: GoogleFonts.poppins(color: Colors.red)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(onPressed: _fetchTrips, child: const Text('Réessayer')),
+                    ],
+                  ),
+                )
+              : Row(
         children: [
           if (!isMobile) const Menu(),
           Expanded(

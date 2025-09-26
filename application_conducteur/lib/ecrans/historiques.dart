@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
+import 'package:application_conducteur/services/mission_service.dart';
+import 'package:application_conducteur/services/trips_service.dart';
 import 'package:intl/intl.dart';
 
 class HistoriquesPage extends StatefulWidget {
@@ -21,42 +23,80 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
   DateTime? selectedDate;
   int selectedTab = 0; // 0 = Missions, 1 = Trajets
 
-  // Historique des missions avec nom et statut
-  final List<Map<String, dynamic>> historiquesMissions = List.generate(6, (
-    index,
-  ) {
-    return {
-      'date': DateTime(2025, 6, 12 + index),
-      'nom': 'Mission ${index + 1}', // nom de la mission
-      'lieu': 'Yopougon → Cocody',
-      'statut': index % 2 == 0 ? 'Terminée' : 'Annulée',
-      'duree': '${30 + index * 5} min',
-      'conducteur': 'Jean Dupont',
-      'vehicule': 'AB-123-CD',
-      'commentaires':
-          index % 2 == 0
-              ? 'Mission effectuée sans encombre.'
-              : 'Annulée pour raisons météo.',
-    };
-  });
+  List<Map<String, dynamic>> historiquesMissions = [];
+  List<Map<String, dynamic>> historiquesTrajets = [];
+  bool _loading = true;
+  String? _error;
 
-  // Historique des trajets avec statut variable
-  final List<Map<String, dynamic>> historiquesTrajets = List.generate(5, (
-    index,
-  ) {
-    return {
-      'date': DateTime(2025, 6, 15 + index),
-      'lieu': 'Plateau → Abobo',
-      'statut': index % 2 == 0 ? 'Effectué' : 'Retardé',
-      'duree': '${15 + index * 3} min',
-      'conducteur': 'Alice Konan',
-      'vehicule': 'ZX-987-WV',
-      'commentaires':
-          index % 2 == 0
-              ? 'Trajet effectué sans incident.'
-              : 'Trajet retardé pour travaux.',
-    };
-  });
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistory();
+  }
+
+  Future<void> _fetchHistory() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        MissionService.fetchMissions(forceRefresh: true),
+        TripsService.fetchDriverTrips(),
+      ]);
+
+      final missionsRaw = results[0] as List<Map<String, dynamic>>;
+      final tripsRaw = results[1] as List<Map<String, dynamic>>;
+
+      final missions = missionsRaw
+          .where((m) => ((m['statut'] ?? '').toString().toLowerCase() == 'terminée' || (m['statut'] ?? '').toString().toLowerCase() == 'annulée'))
+          .map<Map<String, dynamic>>((m) {
+        final dateStr = (m['date'] ?? '').toString();
+        DateTime? date;
+        if (dateStr.isNotEmpty) {
+          date = DateTime.tryParse(dateStr);
+        }
+        return {
+          'date': date ?? DateTime.now(),
+          'nom': m['titre'] ?? 'Mission',
+          'lieu': '${m['depart'] ?? ''} → ${m['arrivee'] ?? ''}',
+          'statut': m['statut'] ?? '',
+          'duree': '',
+          'conducteur': '',
+          'vehicule': '',
+          'commentaires': m['description'] ?? '',
+        };
+      }).toList();
+
+      final trips = tripsRaw.map<Map<String, dynamic>>((t) {
+        DateTime date = DateTime.now();
+        final d = t['date'];
+        if (d is String) {
+          date = DateTime.tryParse(d) ?? date;
+        }
+        return {
+          'date': date,
+          'lieu': '${t['depart'] ?? ''} → ${t['arrivee'] ?? ''}',
+          'statut': t['statut'] ?? '',
+          'duree': t['duree'] ?? '',
+          'conducteur': '',
+          'vehicule': '',
+          'commentaires': '',
+        };
+      }).toList();
+
+      setState(() {
+        historiquesMissions = missions;
+        historiquesTrajets = trips;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +137,20 @@ class _HistoriquesPageState extends State<HistoriquesPage> {
                 centerTitle: false,
               )
               : null,
-      body: Row(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Erreur: $_error', style: GoogleFonts.poppins(color: Colors.red)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(onPressed: _fetchHistory, child: const Text('Réessayer')),
+                    ],
+                  ),
+                )
+              : Row(
         children: [
           if (!isMobile) const Menu(),
           Expanded(

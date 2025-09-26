@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
+import 'package:application_conducteur/services/documents_service.dart';
 import 'package:file_picker/file_picker.dart';
 
 class DocumentsPage extends StatefulWidget {
@@ -16,26 +17,42 @@ class _DocumentsPageState extends State<DocumentsPage> {
   final Color secondaryColor = const Color(0xFF4F9CF9);
   final Color textPrimary = const Color(0xFF1A202C);
 
-  final List<Map<String, dynamic>> conducteurDocs = [
-    {
-      "titre": "Permis B",
-      "etat": "Valide",
-      "expiration": "12/2026",
-      "file": null,
-    },
-    {
-      "titre": "Carte d'identité",
-      "etat": "Bientôt expiré",
-      "expiration": "03/2026",
-      "file": null,
-    },
-    {
-      "titre": "Certificat médical",
-      "etat": "Expiré",
-      "expiration": "01/2024",
-      "file": null,
-    },
-  ];
+  List<Map<String, dynamic>> conducteurDocs = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDocuments();
+  }
+
+  Future<void> _fetchDocuments() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await DocumentsService.fetchDocuments();
+      // Mapping minimal pour l'affichage
+      final mapped = data.map<Map<String, dynamic>>((d) {
+        final map = Map<String, dynamic>.from(d);
+        String titre = (map['titre'] ?? map['title'] ?? map['name'] ?? 'Document').toString();
+        String etat = (map['etat'] ?? map['status'] ?? '—').toString();
+        String expiration = (map['expiration'] ?? map['date_expiration'] ?? map['expires_at'] ?? '').toString();
+        return {"titre": titre, "etat": etat, "expiration": expiration, "file": null};
+      }).toList();
+      setState(() {
+        conducteurDocs = mapped;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +139,30 @@ class _DocumentsPageState extends State<DocumentsPage> {
                       const SizedBox(height: 20),
 
                       // Liste des documents
-                      Column(
+                      _loading
+                          ? const Padding(
+                              padding: EdgeInsets.all(24.0),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : _error != null
+                              ? Padding(
+                                  padding: const EdgeInsets.all(24.0),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        "Erreur: $_error",
+                                        style: GoogleFonts.poppins(color: Colors.red),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ElevatedButton(
+                                        onPressed: _fetchDocuments,
+                                        style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: Colors.white),
+                                        child: const Text('Réessayer'),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children:
                             conducteurDocs.map((doc) {
@@ -324,17 +364,30 @@ class _DocumentsPageState extends State<DocumentsPage> {
                   ),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: () {
-                      if (titreController.text.isNotEmpty) {
-                        setState(() {
-                          conducteurDocs.add({
-                            "titre": titreController.text,
-                            "etat": etat,
-                            "expiration": expirationController.text,
-                            "file": selectedFile,
-                          });
-                        });
+                    onPressed: () async {
+                      if (titreController.text.isEmpty || selectedFile == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Sélectionnez un fichier et indiquez un titre.')),
+                        );
+                        return;
+                      }
+                      try {
+                        await DocumentsService.uploadDocument(
+                          file: selectedFile!,
+                          title: titreController.text,
+                          expiration: expirationController.text.isNotEmpty ? expirationController.text : null,
+                          status: etat,
+                        );
+                        if (!mounted) return;
                         Navigator.of(context).pop();
+                        await _fetchDocuments();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Document téléversé.')),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erreur upload: $e')),
+                        );
                       }
                     },
                     style: ElevatedButton.styleFrom(

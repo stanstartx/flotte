@@ -53,4 +53,4 @@ class VehicleConsumer(AsyncWebsocketConsumer):
             heading=data.get('heading'),
             battery_level=data.get('battery_level'),
             is_online=True
-        ) 
+        )

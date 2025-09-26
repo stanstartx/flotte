@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
+import 'package:application_conducteur/services/alert_service.dart';
 import 'package:intl/intl.dart';
 
 class AlertesPage extends StatefulWidget {
@@ -16,49 +17,60 @@ class _AlertesPageState extends State<AlertesPage> {
   final Color textPrimary = const Color(0xFF1A202C);
 
   int selectedTab = 0; // 0=Toutes, 1=Critique, 2=Warning
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> alertes = [];
 
-  List<Map<String, dynamic>> alertes = [
-    {
-      'type': 'Permis',
-      'niveau': 'warning',
-      'message': 'Permis expirant dans 10 jours',
-      'vehicule': 'AB-123-CD',
-      'conducteur': 'John Doe',
-      'date': DateTime(2025, 8, 28),
-    },
-    {
-      'type': 'Assurance',
-      'niveau': 'critique',
-      'message': 'Assurance expirée',
-      'vehicule': 'XY-456-ZW',
-      'conducteur': 'Jane Smith',
-      'date': DateTime(2025, 8, 20),
-    },
-    {
-      'type': 'Entretien',
-      'niveau': 'warning',
-      'message': 'Vidange à effectuer',
-      'vehicule': 'CD-789-EF',
-      'conducteur': 'Alice Konan',
-      'date': DateTime(2025, 8, 25),
-    },
-    {
-      'type': 'Contrôle_technique',
-      'niveau': 'critique',
-      'message': 'CT expiré',
-      'vehicule': 'GH-321-IJ',
-      'conducteur': 'Bob Martin',
-      'date': DateTime(2025, 8, 18),
-    },
-    {
-      'type': 'Permis',
-      'niveau': '',
-      'message': 'Permis vérifié récemment',
-      'vehicule': 'KL-654-MN',
-      'conducteur': 'John Doe',
-      'date': DateTime(2025, 8, 22),
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchAlerts();
+  }
+
+  Future<void> _fetchAlerts() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await AlertService.fetchAlerts();
+      // Mapping souple pour s'adapter aux champs backend
+      final mapped = data.map<Map<String, dynamic>>((a) {
+        final map = Map<String, dynamic>.from(a);
+        String niveau = (map['niveau'] ?? map['level'] ?? map['severity'] ?? '').toString();
+        String type = (map['type'] ?? map['category'] ?? 'Alerte').toString();
+        String message = (map['message'] ?? map['detail'] ?? map['title'] ?? '').toString();
+        String vehicule = (map['vehicule'] ?? map['vehicle'] ?? map['vehicle_plate'] ?? '').toString();
+        String conducteur = (map['conducteur'] ?? map['driver'] ?? '').toString();
+        DateTime date;
+        final rawDate = map['date'] ?? map['created_at'] ?? map['timestamp'];
+        if (rawDate is String) {
+          date = DateTime.tryParse(rawDate) ?? DateTime.now();
+        } else if (rawDate is int) {
+          date = DateTime.fromMillisecondsSinceEpoch(rawDate);
+        } else {
+          date = DateTime.now();
+        }
+        return {
+          'type': type,
+          'niveau': niveau.toLowerCase(),
+          'message': message,
+          'vehicule': vehicule,
+          'conducteur': conducteur,
+          'date': date,
+        };
+      }).toList();
+      setState(() {
+        alertes = mapped;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +161,26 @@ class _AlertesPageState extends State<AlertesPage> {
                       const SizedBox(height: 28),
 
                       // Liste des alertes
-                      filtered.isEmpty
+                      _loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _error != null
+                              ? Padding(
+                                  padding: const EdgeInsets.all(24.0),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        "Erreur: $_error",
+                                        style: GoogleFonts.poppins(color: Colors.red),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ElevatedButton(
+                                        onPressed: _fetchAlerts,
+                                        child: const Text('Réessayer'),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : filtered.isEmpty
                           ? Padding(
                             padding: const EdgeInsets.all(40.0),
                             child: Center(

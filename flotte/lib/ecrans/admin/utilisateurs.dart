@@ -55,13 +55,15 @@ class _UtilisateursPageState extends State<UtilisateursPage>
         return;
       }
 
+      final headers = {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      };
+
       // Récupérer les conducteurs
       final driversResponse = await http.get(
         Uri.parse('http://192.168.11.243:8000/api/drivers/'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
       );
 
       if (driversResponse.statusCode == 200) {
@@ -72,10 +74,7 @@ class _UtilisateursPageState extends State<UtilisateursPage>
       // Récupérer les administrateurs et gestionnaires
       final usersResponse = await http.get(
         Uri.parse('http://192.168.11.243:8000/api/userprofiles/'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
       );
 
       if (usersResponse.statusCode == 200) {
@@ -98,143 +97,238 @@ class _UtilisateursPageState extends State<UtilisateursPage>
     }
   }
 
-  Future<void> createUser(Map<String, dynamic> userData, bool isConducteur) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+Future<void> createUser(Map<String, dynamic> userData, bool isConducteur) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
 
-      if (token == null) return;
+    if (token == null) return;
 
-      // Créer l'utilisateur
-      final userResponse = await http.post(
-        Uri.parse('http://192.168.11.243:8000/api/auth/register/'),
+    // Créer l'utilisateur
+    final userResponse = await http.post(
+      Uri.parse('http://192.168.11.243:8000/api/auth/register/'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'username': userData['username'],
+        'password': userData['password'],
+        'email': userData['email'],
+        'first_name': userData['first_name'],
+        'last_name': userData['last_name'],
+        'role': isConducteur ? 'conducteur' : userData['role'],
+      }),
+    );
+
+    if (userResponse.statusCode == 201) {
+      final Map<String, dynamic> created = json.decode(userResponse.body) as Map<String, dynamic>;
+      final int profileId = created['profile_id'] as int;
+
+      // CORRECTION: Mettre à jour le UserProfile avec les en-têtes corrects
+      final profileUpdateResponse = await http.put(
+        Uri.parse('http://192.168.11.243:8000/api/userprofiles/$profileId/'),
         headers: {
           'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json', // IMPORTANT: Spécifier le Content-Type
         },
         body: json.encode({
-          'username': userData['username'],
-          'password': userData['password'],
-          'email': userData['email'],
-          'first_name': userData['first_name'],
-          'last_name': userData['last_name'],
-          'role': isConducteur ? 'conducteur' : userData['role'],
+          'telephone': userData['telephone'] ?? '',
+          'adresse': userData['adresse'] ?? '',
+          'role': isConducteur ? 'conducteur' : (userData['role'] ?? 'gestionnaire'),
         }),
       );
 
-      if (userResponse.statusCode == 201) {
-        final Map<String, dynamic> created = json.decode(userResponse.body) as Map<String, dynamic>;
-        final int profileId = created['profile_id'] as int;
+      // Vérifier si la mise à jour du profil a réussi
+      if (profileUpdateResponse.statusCode != 200) {
+        print('Erreur mise à jour profil: ${profileUpdateResponse.statusCode} - ${profileUpdateResponse.body}');
+      }
 
-        // Mettre à jour le UserProfile (telephone/adresse/role)
-        await http.put(
-          Uri.parse('http://192.168.11.243:8000/api/userprofiles/$profileId/'),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-          body: json.encode({
-            'telephone': userData['telephone'] ?? '',
-            'adresse': userData['adresse'] ?? '',
-            'role': isConducteur ? 'conducteur' : (userData['role'] ?? 'gestionnaire'),
-          }),
-        );
+      if (isConducteur) {
+        // CORRECTION: Préparer les données du conducteur avec validation
+        final String numeroPermis = (userData['numero_permis'] as String?)?.trim() ?? '';
+        if (numeroPermis.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Le numéro de permis est requis')),
+          );
+          return;
+        }
 
-        if (isConducteur) {
-          // Créer le profil conducteur en liant le profile existant
-          final String? photoPath = (userData['photo_path'] as String?)?.trim();
-          final List<int>? photoBytes = (userData['photo_bytes'] as List<int>?);
-          final String fileName = (userData['photo_filename'] as String?) ?? 'photo.jpg';
-          final String? dateNaissance = (userData['date_naissance'] as String?)?.trim();
-          final String? dateExpiration = (userData['date_expiration_permis'] as String?)?.trim();
+        final String? photoPath = (userData['photo_path'] as String?)?.trim();
+        final List<int>? photoBytes = (userData['photo_bytes'] as List<int>?);
+        final String fileName = (userData['photo_filename'] as String?) ?? 'photo.jpg';
+        final String? dateNaissance = (userData['date_naissance'] as String?)?.trim();
+        final String? dateExpiration = (userData['date_expiration_permis'] as String?)?.trim();
 
-          if ((photoPath != null && photoPath.isNotEmpty) || (photoBytes != null && photoBytes.isNotEmpty)) {
-            final uri = Uri.parse('http://192.168.11.243:8000/api/drivers/');
-            final request = http.MultipartRequest('POST', uri);
-            request.headers['Authorization'] = 'Bearer $token';
-            request.fields['user_profile_id'] = profileId.toString();
-            request.fields['numero_permis'] = (userData['numero_permis'] ?? '').toString();
-            request.fields['permis'] = (userData['categorie_permis'] ?? 'B').toString();
-            if (dateNaissance != null && dateNaissance.isNotEmpty) {
-              request.fields['date_naissance'] = dateNaissance.split('T').first;
-            }
-            if (dateExpiration != null && dateExpiration.isNotEmpty) {
-              request.fields['date_expiration_permis'] = dateExpiration.split('T').first;
-            }
-            request.fields['statut'] = (userData['statut'] ?? 'actif').toString();
-
+        // CORRECTION: Créer le conducteur avec ou sans photo
+        if ((photoPath != null && photoPath.isNotEmpty) || (photoBytes != null && photoBytes.isNotEmpty)) {
+          // Avec photo - utiliser multipart
+          final uri = Uri.parse('http://192.168.11.243:8000/api/drivers/');
+          final request = http.MultipartRequest('POST', uri);
+          request.headers['Authorization'] = 'Bearer $token';
+          // Ne pas définir Content-Type pour multipart, laissons http le faire automatiquement
+          
+          // CORRECTION: Champs requis
+          request.fields['user_profile_id'] = profileId.toString();
+          request.fields['numero_permis'] = numeroPermis;
+          request.fields['permis'] = (userData['categorie_permis'] ?? 'B').toString();
+          
+          // Champs optionnels
+          if (dateNaissance != null && dateNaissance.isNotEmpty) {
             try {
-              if (photoBytes != null && photoBytes.isNotEmpty) {
-                request.files.add(http.MultipartFile.fromBytes('photo', photoBytes, filename: fileName));
-              }
-            } catch (e) {}
-
-            final streamed = await request.send();
-            final resp = await http.Response.fromStream(streamed);
-            if (resp.statusCode == 201 || resp.statusCode == 200) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Conducteur créé avec succès')),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Erreur création conducteur: ${resp.statusCode}')),
-              );
+              final date = DateTime.parse(dateNaissance);
+              request.fields['date_naissance'] = date.toIso8601String().split('T').first;
+            } catch (e) {
+              print('Erreur parsing date naissance: $e');
             }
-          } else {
-            final driverData = {
-              'user_profile_id': profileId,
-              'numero_permis': userData['numero_permis'],
-              'permis': userData['categorie_permis'],
-              'date_naissance': dateNaissance != null && dateNaissance.isNotEmpty ? dateNaissance.split('T').first : null,
-              'date_expiration_permis': dateExpiration != null && dateExpiration.isNotEmpty ? dateExpiration.split('T').first : null,
-              'statut': userData['statut'] ?? 'actif',
-            };
+          }
+          
+          if (dateExpiration != null && dateExpiration.isNotEmpty) {
+            try {
+              final date = DateTime.parse(dateExpiration);
+              request.fields['date_expiration_permis'] = date.toIso8601String().split('T').first;
+            } catch (e) {
+              print('Erreur parsing date expiration: $e');
+            }
+          }
+          
+          request.fields['statut'] = (userData['statut'] ?? 'actif').toString();
+          request.fields['notes'] = (userData['notes'] ?? '').toString();
 
-            final driverResponse = await http.post(
-              Uri.parse('http://192.168.11.243:8000/api/drivers/'),
-              headers: {
-                'Authorization': 'Bearer $token',
-                'Content-Type': 'application/json',
-              },
-              body: json.encode(driverData),
+          // Ajouter la photo
+          try {
+            if (photoBytes != null && photoBytes.isNotEmpty) {
+              request.files.add(http.MultipartFile.fromBytes('photo', photoBytes, filename: fileName));
+            }
+          } catch (e) {
+            print('Erreur ajout photo: $e');
+          }
+
+          final streamed = await request.send();
+          final resp = await http.Response.fromStream(streamed);
+          
+          if (resp.statusCode == 201 || resp.statusCode == 200) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Conducteur créé avec succès')),
             );
+          } else {
+            print('Erreur création conducteur multipart: ${resp.statusCode} - ${resp.body}');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Erreur création conducteur: ${resp.statusCode}')),
+            );
+          }
+        } else {
+          // CORRECTION: Sans photo - utiliser JSON avec validation
+          final Map<String, dynamic> driverData = {
+            'user_profile_id': profileId,
+            'numero_permis': numeroPermis,
+            'permis': userData['categorie_permis'] ?? 'B',
+            'statut': userData['statut'] ?? 'actif',
+            'notes': userData['notes'] ?? '',
+          };
 
-            if (driverResponse.statusCode == 201) {
+          // Ajouter les dates seulement si elles sont valides
+          if (dateNaissance != null && dateNaissance.isNotEmpty) {
+            try {
+              final date = DateTime.parse(dateNaissance);
+              driverData['date_naissance'] = date.toIso8601String().split('T').first;
+            } catch (e) {
+              print('Erreur parsing date naissance: $e');
+            }
+          }
+          
+          if (dateExpiration != null && dateExpiration.isNotEmpty) {
+            try {
+              final date = DateTime.parse(dateExpiration);
+              driverData['date_expiration_permis'] = date.toIso8601String().split('T').first;
+            } catch (e) {
+              print('Erreur parsing date expiration: $e');
+            }
+          }
+
+          final driverResponse = await http.post(
+            Uri.parse('http://192.168.11.243:8000/api/drivers/'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode(driverData),
+          );
+
+          if (driverResponse.statusCode == 201) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Conducteur créé avec succès')),
+            );
+          } else {
+            print('Erreur création conducteur JSON: ${driverResponse.statusCode} - ${driverResponse.body}');
+            
+            // CORRECTION: Affichage des erreurs spécifiques
+            try {
+              final errorData = json.decode(driverResponse.body);
+              String errorMsg = 'Erreur lors de la création du conducteur';
+              
+              if (errorData is Map<String, dynamic>) {
+                if (errorData.containsKey('numero_permis')) {
+                  errorMsg = 'Numéro de permis: ${errorData['numero_permis'][0]}';
+                } else if (errorData.containsKey('user_profile_id')) {
+                  errorMsg = 'Profil utilisateur: ${errorData['user_profile_id'][0]}';
+                } else if (errorData.containsKey('error')) {
+                  errorMsg = errorData['error'].toString();
+                }
+              }
+              
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Conducteur créé avec succès')),
+                SnackBar(content: Text(errorMsg)),
               );
-            } else {
+            } catch (e) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Erreur lors de la création du profil conducteur')),
+                const SnackBar(content: Text('Erreur lors de la création du conducteur')),
               );
             }
           }
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Administrateur créé avec succès')),
-          );
         }
-        fetchUsers();
       } else {
-        try {
-          final Map<String, dynamic> error = json.decode(userResponse.body) as Map<String, dynamic>;
-          final String message = (error['error'] ?? error['detail'] ?? 'Erreur inconnue').toString();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $message')),
-          );
-        } catch (_) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Erreur: requête invalide')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Administrateur créé avec succès')),
+        );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      
+      // Actualiser la liste
+      fetchUsers();
+    } else {
+      // CORRECTION: Gestion des erreurs de création d'utilisateur
+      print('Erreur création utilisateur: ${userResponse.statusCode} - ${userResponse.body}');
+      
+      try {
+        final Map<String, dynamic> error = json.decode(userResponse.body) as Map<String, dynamic>;
+        String message = 'Erreur inconnue';
+        
+        if (error.containsKey('username')) {
+          message = 'Nom d\'utilisateur: ${error['username'][0]}';
+        } else if (error.containsKey('email')) {
+          message = 'Email: ${error['email'][0]}';
+        } else if (error.containsKey('error')) {
+          message = error['error'].toString();
+        } else if (error.containsKey('detail')) {
+          message = error['detail'].toString();
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $message')),
+        );
+      } catch (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${userResponse.statusCode}')),
+        );
+      }
     }
+  } catch (e) {
+    print('Exception lors de la création: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Erreur: $e')),
+    );
   }
-
+}
   Future<void> updateUser(int id, Map<String, dynamic> userData, bool isConducteur) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -754,61 +848,100 @@ class _UtilisateursPageState extends State<UtilisateursPage>
 
   /// ----------- VOIR UTILISATEUR -------------
   void _showUserDetailDialog(bool isConducteur, Map<String, dynamic> user) {
+    final String photoUrl = user['user_profile']?['photo'] != null && user['user_profile']['photo'].isNotEmpty
+        ? (user['user_profile']['photo'].startsWith('http') ? user['user_profile']['photo'] : 'http://192.168.11.243:8000${user['user_profile']['photo']}')
+        : '';
+
     showDialog(
       context: context,
       builder: (context) {
         return Dialog(
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 80, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
           ),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Center(
-                    child: Text(
-                      isConducteur ? "Détails Conducteur" : "Détails Admin",
-                      style: GoogleFonts.poppins(
-                          fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text("Nom : ${isConducteur ? (user['user_profile']?['user']?['first_name'] ?? '') : (user['user']?['first_name'] ?? '')}"),
-                  Text("Prénom : ${isConducteur ? (user['user_profile']?['user']?['last_name'] ?? '') : (user['user']?['last_name'] ?? '')}"),
-                  Text("Email : ${isConducteur ? (user['user_profile']?['user']?['email'] ?? '') : (user['user']?['email'] ?? '')}"),
-                  Text("Téléphone : ${isConducteur ? (user['user_profile']?['telephone'] ?? '') : 'Non défini'}"),
-                  Text("Adresse : ${isConducteur ? (user['user_profile']?['adresse'] ?? '') : 'Non défini'}"),
-                  if (isConducteur) ...[
-                    Text("Numéro de permis : ${user['numero_permis'] ?? ''}"),
-                    Text("Catégorie permis : ${user['permis'] ?? ''}"),
-                    if (user['date_naissance'] != null)
-                      Text("Date de naissance : ${DateFormat('dd/MM/yyyy').format(DateTime.parse(user['date_naissance']))}"),
-                    if (user['date_expiration_permis'] != null)
-                      Text("Expiration permis : ${DateFormat('dd/MM/yyyy').format(DateTime.parse(user['date_expiration_permis']))}"),
-                  ],
-                  const SizedBox(height: 20),
-                  Align(
-                    alignment: Alignment.center,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: Télécharger fiche PDF
-                      },
-                      icon: const Icon(Icons.download),
-                      label: const Text("Télécharger"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF002244),
-                        foregroundColor: Colors.white,
+            constraints: const BoxConstraints(maxWidth: 450, maxHeight: 600),
+            child: Stack(
+              children: [
+                // Fond avec photo (si disponible) et overlay pour lisibilité
+                if (photoUrl.isNotEmpty)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        image: DecorationImage(
+                          image: NetworkImage(photoUrl),
+                          fit: BoxFit.cover,
+                          colorFilter: ColorFilter.mode(
+                            Colors.black.withOpacity(0.4),
+                            BlendMode.darken,
+                          ),
+                        ),
                       ),
                     ),
-                  )
-                ],
-              ),
+                  ),
+                // Contenu principal
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Center(
+                        child: Text(
+                          isConducteur ? "Détails du Conducteur" : "Détails de l'Admin",
+                          style: GoogleFonts.poppins(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: photoUrl.isNotEmpty ? Colors.white : const Color(0xFF002244),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      if (photoUrl.isEmpty)
+                        Center(
+                          child: CircleAvatar(
+                            radius: 60,
+                            backgroundColor: Colors.grey[300],
+                            child: const Icon(Icons.person, size: 60, color: Colors.white),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      _buildInfoRow("Nom", isConducteur ? (user['user_profile']?['user']?['first_name'] ?? '') : (user['user']?['first_name'] ?? ''), photoUrl.isNotEmpty),
+                      _buildInfoRow("Prénom", isConducteur ? (user['user_profile']?['user']?['last_name'] ?? '') : (user['user']?['last_name'] ?? ''), photoUrl.isNotEmpty),
+                      _buildInfoRow("Email", isConducteur ? (user['user_profile']?['user']?['email'] ?? '') : (user['user']?['email'] ?? ''), photoUrl.isNotEmpty),
+                      _buildInfoRow("Téléphone", isConducteur ? (user['user_profile']?['telephone'] ?? 'Non défini') : 'Non défini', photoUrl.isNotEmpty),
+                      _buildInfoRow("Adresse", isConducteur ? (user['user_profile']?['adresse'] ?? 'Non défini') : 'Non défini', photoUrl.isNotEmpty),
+                      if (isConducteur) ...[
+                        _buildInfoRow("Numéro de permis", user['numero_permis'] ?? 'Non défini', photoUrl.isNotEmpty),
+                        _buildInfoRow("Catégorie permis", user['permis'] ?? 'Non défini', photoUrl.isNotEmpty),
+                        if (user['date_naissance'] != null)
+                          _buildInfoRow("Date de naissance", DateFormat('dd/MM/yyyy').format(DateTime.parse(user['date_naissance'])), photoUrl.isNotEmpty),
+                        if (user['date_expiration_permis'] != null)
+                          _buildInfoRow("Expiration permis", DateFormat('dd/MM/yyyy').format(DateTime.parse(user['date_expiration_permis'])), photoUrl.isNotEmpty),
+                        _buildInfoRow("Statut", user['statut'] ?? 'Non défini', photoUrl.isNotEmpty),
+                      ],
+                      const SizedBox(height: 24),
+                      Center(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            // TODO: Télécharger fiche PDF
+                          },
+                          icon: const Icon(Icons.download),
+                          label: const Text("Télécharger PDF"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF002244),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -816,113 +949,294 @@ class _UtilisateursPageState extends State<UtilisateursPage>
     );
   }
 
-  /// ----------- TABLEAU UTILISATEURS -------------
-  Widget _buildUserTable(bool isConducteur, List<dynamic> users) {
-    final filteredUsers = users.where((user) {
-      final matchesSearch = 
-        (user['user_profile']?['user']?['username'] ?? user['user']?['username'] ?? '')
-            .toString().toLowerCase().contains(searchQuery.toLowerCase()) ||
-        (user['user_profile']?['user']?['email'] ?? user['user']?['email'] ?? '')
-            .toString().toLowerCase().contains(searchQuery.toLowerCase());
-      
-      final matchesStatus = selectedStatut == 'Tous' || 
-                           (isConducteur 
-                             ? (user['statut'] ?? '').toString().toLowerCase() == selectedStatut.toLowerCase()
-                             : (user['role'] ?? '').toString().toLowerCase() == selectedStatut.toLowerCase());
-      
-      return matchesSearch && matchesStatus;
-    }).toList();
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: isConducteur
-              ? const [
-                  DataColumn(label: Text('Nom / Prénom')),
-                  DataColumn(label: Text('Identifiant')),
-                  DataColumn(label: Text('Statut')),
-                  DataColumn(label: Text('Téléphone')),
-                  DataColumn(label: Text('Actions')),
-                ]
-              : const [
-                  DataColumn(label: Text('Nom / Prénom')),
-                  DataColumn(label: Text('Identifiant')),
-                  DataColumn(label: Text('Statut')),
-                  DataColumn(label: Text('Email')),
-                  DataColumn(label: Text('Actions')),
-                ],
-          rows: filteredUsers.map((user) {
-            return DataRow(
-              cells: [
-                DataCell(Text(isConducteur 
-                  ? '${user['user_profile']?['user']?['first_name'] ?? ''} ${user['user_profile']?['user']?['last_name'] ?? ''}'
-                  : '${user['user']?['first_name'] ?? ''} ${user['user']?['last_name'] ?? ''}')),
-                DataCell(Text(isConducteur 
-                  ? (user['user_profile']?['user']?['username'] ?? '')
-                  : (user['user']?['username'] ?? ''))),
-                DataCell(Text(isConducteur 
-                  ? (user['statut'] ?? '')
-                  : (user['role'] ?? ''))),
-                DataCell(Text(isConducteur 
-                  ? (user['user_profile']?['telephone'] ?? '')
-                  : (user['user']?['email'] ?? ''))),
-                DataCell(
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove_red_eye,
-                            color: Colors.blue),
-                        tooltip: "Voir",
-                        onPressed: () =>
-                            _showUserDetailDialog(isConducteur, user),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.orange),
-                        tooltip: "Modifier",
-                        onPressed: () =>
-                            _showUserFormDialog(isConducteur, user: user),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        tooltip: "Supprimer",
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Confirmer la suppression'),
-                              content: Text('Êtes-vous sûr de vouloir supprimer cet utilisateur ?'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Annuler'),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    deleteUser(user['id'], isConducteur);
-                                    Navigator.pop(context);
-                                  },
-                                  child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
+  Widget _buildInfoRow(String label, String value, bool hasBackground) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            "$label :",
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: hasBackground ? Colors.white70 : Colors.black87,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                color: hasBackground ? Colors.white : Colors.black,
+              ),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  /// ----------- TABLEAU UTILISATEURS -------------
+  Widget _buildUserTable(bool isConducteur, List<dynamic> users) {
+    final filteredUsers = isConducteur ? filteredConducteurs : filteredAdministrateurs;
+
+    if (!isConducteur) {
+      // Pour administrateurs, garder le DataTable
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Nom / Prénom')),
+              DataColumn(label: Text('Identifiant')),
+              DataColumn(label: Text('Statut')),
+              DataColumn(label: Text('Email')),
+              DataColumn(label: Text('Actions')),
+            ],
+            rows: filteredUsers.map((user) {
+              return DataRow(
+                cells: [
+                  DataCell(Text('${user['user']?['first_name'] ?? ''} ${user['user']?['last_name'] ?? ''}')),
+                  DataCell(Text(user['user']?['username'] ?? '')),
+                  DataCell(Text(user['role'] ?? '')),
+                  DataCell(Text(user['user']?['email'] ?? '')),
+                  DataCell(
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_red_eye, color: Colors.blue),
+                          tooltip: "Voir",
+                          onPressed: () => _showUserDetailDialog(false, user),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.orange),
+                          tooltip: "Modifier",
+                          onPressed: () => _showUserFormDialog(false, user: user),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          tooltip: "Supprimer",
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Confirmer la suppression'),
+                                content: const Text('Êtes-vous sûr de vouloir supprimer cet utilisateur ?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Annuler'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      deleteUser(user['id'], false);
+                                      Navigator.pop(context);
+                                    },
+                                    child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      );
+    } else {
+      // Pour conducteurs, cartes carrées 3 par ligne avec photo en fond
+      return GridView.builder(
+        padding: const EdgeInsets.only(bottom: 16),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 1,
+        ),
+        itemCount: filteredUsers.length,
+        itemBuilder: (context, index) {
+          final user = filteredUsers[index];
+          final String name = '${user['user_profile']?['user']?['first_name'] ?? ''} ${user['user_profile']?['user']?['last_name'] ?? ''}';
+          final String statut = user['statut'] ?? 'inconnu';
+          final String telephone = user['user_profile']?['telephone'] ?? 'Non défini';
+          final String numeroPermis = user['numero_permis'] ?? 'Non défini';
+          final String categoriePermis = user['permis'] ?? 'Non défini';
+          final String photoUrl = user['user_profile']?['photo'] != null && user['user_profile']['photo'].isNotEmpty
+              ? (user['user_profile']['photo'].startsWith('http') ? user['user_profile']['photo'] : 'http://192.168.11.243:8000${user['user_profile']['photo']}')
+              : '';
+          final bool hasPhoto = photoUrl.isNotEmpty;
+
+          Color statutColor;
+          switch (statut.toLowerCase()) {
+            case 'actif':
+              statutColor = Colors.green;
+              break;
+            case 'inactif':
+              statutColor = Colors.red;
+              break;
+            case 'en_conge':
+              statutColor = Colors.orange;
+              break;
+            default:
+              statutColor = Colors.grey;
+          }
+
+          return Card(
+            elevation: 6,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                image: hasPhoto
+                    ? DecorationImage(
+                        image: NetworkImage(photoUrl),
+                        fit: BoxFit.cover,
+                        colorFilter: ColorFilter.mode(
+                          Colors.black.withOpacity(0.6),
+                          BlendMode.darken,
+                        ),
+                      )
+                    : null,
+                gradient: !hasPhoto
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Colors.blue[800]!, Colors.blue[400]!],
+                      )
+                    : null,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
+                      backgroundColor: hasPhoto ? null : Colors.white30,
+                      child: !hasPhoto ? const Icon(Icons.person, size: 40, color: Colors.white) : null,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      name,
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.phone, size: 16, color: Colors.white70),
+                        const SizedBox(width: 4),
+                        Text(
+                          telephone,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.drive_eta, size: 16, color: Colors.white70),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$numeroPermis ($categoriePermis)',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statutColor.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        statut.toUpperCase(),
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.visibility, color: Colors.white),
+                          tooltip: "Voir",
+                          onPressed: () => _showUserDetailDialog(true, user),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.white),
+                          tooltip: "Modifier",
+                          onPressed: () => _showUserFormDialog(true, user: user),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.white),
+                          tooltip: "Supprimer",
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Confirmer la suppression'),
+                                content: const Text('Êtes-vous sûr de vouloir supprimer ce conducteur ?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Annuler'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      deleteUser(user['id'], true);
+                                      Navigator.pop(context);
+                                    },
+                                    child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
   }
 
   /// ----------- UI PRINCIPALE -------------

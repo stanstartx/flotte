@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
+import 'package:application_conducteur/services/profile_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 const Color kGreenDark = Color(0xFF14532D);
 const Color kGreen = Color(0xFF22C55E);
@@ -19,12 +22,12 @@ class ParametresPage extends StatefulWidget {
 
 class _ParametresPageState extends State<ParametresPage> {
   // --- State ---
-  String _nom = 'Jean Kouassi';
-  String _email = 'jean.kouassi@mail.com';
-  String _tel = '+225 01 23 45 67';
-  String _dob = '01/01/1990';
-  String _adresse = 'Abidjan, Côte d\'Ivoire';
-  String _numPermis = '123456789';
+  String _nom = '—';
+  String _email = '—';
+  String _tel = '—';
+  String _dob = '—';
+  String _adresse = '—';
+  String _numPermis = '—';
   String _photoUrl = 'https://via.placeholder.com/150';
 
   // Notifications
@@ -42,18 +45,69 @@ class _ParametresPageState extends State<ParametresPage> {
   bool _darkMode = false;
 
   // Véhicule assigné
-  final Map<String, String> _vehicule = const {
-    'modele': 'Toyota Hilux',
-    'immat': 'AB-1234-ZZ',
-    'km': '84 230 km',
-    'couleur': 'Blanc',
-    'annee': '2022',
-    'carburant': 'Diesel',
-    'vin': 'JTEB1234567890000',
+  Map<String, String> _vehicule = const {
+    'modele': '—',
+    'immat': '—',
+    'km': '—',
+    'couleur': '—',
+    'annee': '—',
+    'carburant': '—',
+    'vin': '—',
   };
 
   // Utils
   bool get isMobile => MediaQuery.of(context).size.width < 700;
+
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchProfile();
+  }
+
+  Future<void> _fetchProfile() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        ProfileService.fetchMyProfile(),
+        ProfileService.fetchAssignedVehicle(),
+      ]);
+      final profile = results[0] as Map<String, dynamic>;
+      final vehicle = results[1] as Map<String, dynamic>;
+
+      setState(() {
+        _nom = (profile['full_name'] ?? profile['name'] ?? profile['user']?['username'] ?? '—').toString();
+        _email = (profile['email'] ?? profile['user']?['email'] ?? '—').toString();
+        _tel = (profile['phone'] ?? profile['telephone'] ?? '—').toString();
+        _dob = (profile['date_of_birth'] ?? profile['dob'] ?? '—').toString();
+        _adresse = (profile['address'] ?? '—').toString();
+        _numPermis = (profile['driver_license'] ?? '—').toString();
+        _photoUrl = (profile['avatar'] ?? profile['photo_url'] ?? _photoUrl).toString();
+
+        _vehicule = {
+          'modele': (vehicle['modele'] ?? vehicle['model'] ?? '—').toString(),
+          'immat': (vehicle['immatriculation'] ?? vehicle['plate_number'] ?? '—').toString(),
+          'km': (vehicle['kilometrage'] ?? vehicle['mileage'] ?? '—').toString(),
+          'couleur': (vehicle['couleur'] ?? vehicle['color'] ?? '—').toString(),
+          'annee': (vehicle['annee'] ?? vehicle['year'] ?? '—').toString(),
+          'carburant': (vehicle['carburant'] ?? vehicle['fuel_type'] ?? '—').toString(),
+          'vin': (vehicle['vin'] ?? '—').toString(),
+        };
+
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
 
   // ---------- Modales ----------
   void _openHeaderDialog({
@@ -137,7 +191,23 @@ class _ParametresPageState extends State<ParametresPage> {
         child: Column(
           children: [
             GestureDetector(
-              onTap: () {},
+              onTap: () async {
+                try {
+                  final result = await FilePicker.platform.pickFiles(type: FileType.image);
+                  if (result == null || result.files.single.path == null) return;
+                  final picked = File(result.files.single.path!);
+                  final url = await ProfileService.uploadProfilePhoto(picked);
+                  if (!mounted) return;
+                  setState(() {
+                    if (url != null && url.isNotEmpty) {
+                      _photoUrl = url;
+                    }
+                  });
+                  _snack('Photo de profil mise à jour.');
+                } catch (e) {
+                  _snack('Erreur upload photo: $e');
+                }
+              },
               child: CircleAvatar(
                 radius: 48,
                 backgroundColor: kGreyText.withOpacity(0.2),
@@ -316,7 +386,19 @@ class _ParametresPageState extends State<ParametresPage> {
           child: const Text('Annuler'),
         ),
         ElevatedButton(
-          onPressed: () => _snack('Mot de passe mis à jour.'),
+          onPressed: () async {
+            try {
+              await ProfileService.changePassword(
+                oldPassword: oldCtrl.text,
+                newPassword: newCtrl.text,
+              );
+              if (!mounted) return;
+              Navigator.pop(context);
+              _snack('Mot de passe mis à jour.');
+            } catch (e) {
+              _snack('Erreur: $e');
+            }
+          },
           style: ElevatedButton.styleFrom(
             backgroundColor: kBlue,
             foregroundColor: Colors.white,
@@ -419,7 +501,20 @@ class _ParametresPageState extends State<ParametresPage> {
               )
               : null,
       drawer: isMobile ? const Menu() : null,
-      body: Row(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Erreur: $_error', style: GoogleFonts.poppins(color: kRed)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(onPressed: _fetchProfile, child: const Text('Réessayer')),
+                    ],
+                  ),
+                )
+              : Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isMobile) const Menu(),

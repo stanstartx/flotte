@@ -19,7 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-)m&q05zq2dgmlqolwd)!vbmi$*o()#7*q2hp=h+b-p1_^$xl+8'
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "192.168.11.243"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "192.168.11.243", "160.154.178.57","192.168.11.154"]
 
 # Application definition
 INSTALLED_APPS = [
@@ -145,6 +145,10 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+# Google Maps API Key
+# Peut être défini via variable d'environnement GOOGLE_MAPS_API_KEY
+GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', 'AIzaSyCyze4WaCmpwGGOB2GkpwH-pTNc04DrEKQ')
 
 # Email
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

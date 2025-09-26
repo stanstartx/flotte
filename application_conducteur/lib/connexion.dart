@@ -1,3 +1,4 @@
+// application_conducteur/lib/connexion.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/auth_service.dart';
@@ -24,6 +25,7 @@ class _ConnexionPageState extends State<ConnexionPage>
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _rememberMe = false; // Case fonctionnelle
+  String _debugMessage = ''; // Pour afficher les messages de debug
 
   @override
   void dispose() {
@@ -54,6 +56,32 @@ class _ConnexionPageState extends State<ConnexionPage>
     );
 
     _animationController.forward();
+    
+    // Pré-remplir avec des données de test
+    _emailController.text = 'test@example.com';
+    _passwordController.text = 'password123';
+    
+    // Tester la connectivité au démarrage
+    _testConnection();
+  }
+
+  Future<void> _testConnection() async {
+    setState(() {
+      _debugMessage = 'Test de connectivité...';
+    });
+    
+    try {
+      // Vous pouvez ajouter un test de ping ici
+      // final dio = HttpClient.instance;
+      // await dio.get('/auth/test-connection/');
+      setState(() {
+        _debugMessage = 'Connexion au serveur OK';
+      });
+    } catch (e) {
+      setState(() {
+        _debugMessage = 'Erreur de connexion: ${e.toString()}';
+      });
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -63,24 +91,65 @@ class _ConnexionPageState extends State<ConnexionPage>
       );
       return;
     }
-    setState(() => _isLoading = true);
+    
+    setState(() {
+      _isLoading = true;
+      _debugMessage = 'Tentative de connexion...';
+    });
+    
     try {
+      print('=== DÉBUT CONNEXION ===');
+      print('Email: ${_emailController.text.trim()}');
+      print('Mot de passe fourni: ${_passwordController.text.isNotEmpty}');
+      
+      setState(() {
+        _debugMessage = 'Envoi des données de connexion...';
+      });
+      
       await _authService.login(
         _emailController.text.trim(),
         _passwordController.text,
       );
+      
+      print('=== CONNEXION RÉUSSIE ===');
+      setState(() {
+        _debugMessage = 'Connexion réussie! Démarrage du service de position...';
+      });
+      
+      // Démarrer le service de position
       Provider.of<PositionSenderService>(context, listen: false).start();
+      
+      setState(() {
+        _debugMessage = 'Redirection vers le tableau de bord...';
+      });
+      
       if (mounted) {
+        // Petite pause pour voir le message
+        await Future.delayed(const Duration(milliseconds: 500));
         Navigator.pushReplacementNamed(context, '/dashboard');
       }
     } catch (e) {
+      print('=== ERREUR DE CONNEXION ===');
+      print('Erreur complète: $e');
+      print('Type d\'erreur: ${e.runtimeType}');
+      
+      setState(() {
+        _debugMessage = 'Erreur: ${e.toString()}';
+      });
+      
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur de connexion: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -174,13 +243,54 @@ class _ConnexionPageState extends State<ConnexionPage>
                           color: isDark ? Colors.grey[400] : Colors.grey[700],
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 20),
+                      
+                      // Message de debug
+                      if (_debugMessage.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 20),
+                          decoration: BoxDecoration(
+                            color: _debugMessage.contains('Erreur') 
+                                ? Colors.red.withOpacity(0.1)
+                                : _debugMessage.contains('réussie') 
+                                    ? Colors.green.withOpacity(0.1)
+                                    : Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _debugMessage.contains('Erreur') 
+                                  ? Colors.red.withOpacity(0.3)
+                                  : _debugMessage.contains('réussie') 
+                                      ? Colors.green.withOpacity(0.3)
+                                      : Colors.blue.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            _debugMessage,
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              color: _debugMessage.contains('Erreur') 
+                                  ? Colors.red
+                                  : _debugMessage.contains('réussie') 
+                                      ? Colors.green
+                                      : Colors.blue,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      
                       TextField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         decoration: InputDecoration(
                           labelText: 'Email',
                           prefixIcon: Icon(Icons.email),
+                          helperText: 'Utilisez: test@example.com pour tester',
+                          helperStyle: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 11,
+                          ),
                         ),
                         textInputAction: TextInputAction.next,
                       ),
@@ -191,6 +301,11 @@ class _ConnexionPageState extends State<ConnexionPage>
                         decoration: InputDecoration(
                           labelText: 'Mot de passe',
                           prefixIcon: Icon(Icons.lock),
+                          helperText: 'Utilisez: password123 pour tester',
+                          helperStyle: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 11,
+                          ),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscurePassword
@@ -208,6 +323,7 @@ class _ConnexionPageState extends State<ConnexionPage>
                         textInputAction: TextInputAction.done,
                       ),
                       const SizedBox(height: 12),
+                      
                       // Case "Se souvenir de moi"
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -233,6 +349,8 @@ class _ConnexionPageState extends State<ConnexionPage>
                         ],
                       ),
                       const SizedBox(height: 20),
+                      
+                      // Bouton de connexion
                       SizedBox(
                         width: double.infinity,
                         height: 50,
@@ -260,6 +378,19 @@ class _ConnexionPageState extends State<ConnexionPage>
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
+                        ),
+                      ),
+                      
+                      // Bouton de test de connectivité
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _isLoading ? null : _testConnection,
+                        child: Text(
+                          'Tester la connexion au serveur',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: primaryColor,
+                          ),
                         ),
                       ),
                     ],

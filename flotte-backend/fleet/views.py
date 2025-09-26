@@ -1,3 +1,5 @@
+# fleet/views.py
+
 from django.shortcuts import render
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, permission_classes
@@ -53,15 +55,25 @@ import json
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import CreateAPIView, RetrieveAPIView
 from django.utils.dateparse import parse_datetime
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.db import models
+from .serializers import MissionSerializer
+import logging
+import os
 
+try:
+    import requests
+except Exception:
+    requests = None
+
+# Configurer le logger
+logger = logging.getLogger(__name__)
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [FormParser, MultiPartParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     @action(detail=True, methods=['get'])
     def get_driver_info(self, request, pk=None):
@@ -88,11 +100,11 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.save()
         return Response(self.get_serializer(profile, context={'request': request}).data)
 
-
 class DriverViewSet(viewsets.ModelViewSet):
     queryset = Driver.objects.all()
     serializer_class = DriverSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     @action(detail=True, methods=['get'])
     def user_info(self, request, pk=None):
@@ -100,36 +112,63 @@ class DriverViewSet(viewsets.ModelViewSet):
         return Response(UserProfileSerializer(driver.user_profile).data)
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()
-        data = dict(data)  # QueryDict -> dict (toutes les valeurs sont des listes)
-        for key in data:
-            if isinstance(data[key], list) and key != 'photo':
-                data[key] = data[key][0]
-        if 'user_profile_data' in data:
-            import json
-            val = data['user_profile_data']
-            if isinstance(val, str):
-                try:
-                    data['user_profile_data'] = json.loads(val)
-                except Exception as e:
-                    return Response({'error': 'user_profile_data mal formé'}, status=400)
-            if not isinstance(data['user_profile_data'], dict):
-                return Response({'error': 'user_profile_data doit être un objet'}, status=400)
+        content_type = request.content_type
+        
+        if 'multipart' in content_type:
+            data = request.data.copy()
+            for key in data:
+                if isinstance(data[key], list) and key != 'photo':
+                    data[key] = data[key][0]
+                    
+            if 'user_profile_data' in data:
+                import json
+                val = data['user_profile_data']
+                if isinstance(val, str):
+                    try:
+                        data['user_profile_data'] = json.loads(val)
+                    except Exception as e:
+                        return Response({'error': 'user_profile_data mal formé'}, status=400)
+                if not isinstance(data['user_profile_data'], dict):
+                    return Response({'error': 'user_profile_data doit être un objet'}, status=400)
+        else:
+            data = request.data
+
+        required_fields = ['user_profile_id', 'numero_permis']
+        missing_fields = [field for field in required_fields if field not in data or not data[field]]
+        
+        if missing_fields:
+            return Response({
+                'error': f'Champs requis manquants: {", ".join(missing_fields)}'
+            }, status=400)
+
+        try:
+            user_profile = UserProfile.objects.get(id=data['user_profile_id'])
+        except UserProfile.DoesNotExist:
+            return Response({'error': 'UserProfile non trouvé'}, status=400)
+        except (ValueError, TypeError):
+            return Response({'error': 'user_profile_id invalide'}, status=400)
+
+        if Driver.objects.filter(numero_permis=data['numero_permis']).exists():
+            return Response({'error': 'Ce numéro de permis existe déjà'}, status=400)
+
         serializer = self.get_serializer(data=data)
         try:
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             return Response(serializer.errors, status=400)
-        # Création du conducteur
+        
         instance = serializer.save()
-        # Gestion de la photo
-        photo = request.FILES.get('photo')
-        if photo and hasattr(instance, 'user_profile'):
-            instance.user_profile.photo = photo
-            instance.user_profile.save()
-        # Retourne la réponse avec le contexte request pour l'URL absolue de la photo
-        return Response(self.get_serializer(instance, context={'request': request}).data, status=status.HTTP_201_CREATED)
-
+        
+        if 'multipart' in content_type:
+            photo = request.FILES.get('photo')
+            if photo and hasattr(instance, 'user_profile'):
+                instance.user_profile.photo = photo
+                instance.user_profile.save()
+        
+        return Response(
+            self.get_serializer(instance, context={'request': request}).data, 
+            status=status.HTTP_201_CREATED
+        )
 
 class VehicleViewSet(viewsets.ModelViewSet):
     queryset = Vehicle.objects.all()
@@ -141,19 +180,15 @@ class VehicleViewSet(viewsets.ModelViewSet):
         vehicle = self.get_object()
         data = self.get_serializer(vehicle).data
         
-        # Ajouter les données des maintenances
         maintenances = Maintenance.objects.filter(vehicle=vehicle).order_by('-date')
         data['maintenances'] = MaintenanceSerializer(maintenances, many=True).data
         
-        # Ajouter les données des pleins de carburant
         pleins = FuelLog.objects.filter(vehicle=vehicle).order_by('-date')
         data['pleins'] = FuelLogSerializer(pleins, many=True).data
         
-        # Ajouter les données des dépenses
         depenses = Expense.objects.filter(vehicle=vehicle).order_by('-date')
         data['depenses'] = ExpenseSerializer(depenses, many=True).data
         
-        # Ajouter les données des missions
         missions = Mission.objects.filter(vehicle=vehicle).order_by('-date_debut')
         data['missions'] = MissionSerializer(missions, many=True).data
         
@@ -165,11 +200,9 @@ class VehicleViewSet(viewsets.ModelViewSet):
         vehicules_actifs = Vehicle.objects.filter(actif=True).count()
         total_kilometrage = Vehicle.objects.aggregate(total=Sum('kilometrage'))['total'] or 0
         
-        # Calculer les dépenses totales
         depenses = Expense.objects.all()
         total_depenses = depenses.aggregate(total=Sum('montant'))['total'] or 0
         
-        # Calculer la consommation moyenne globale
         pleins = FuelLog.objects.all()
         total_litres = pleins.aggregate(total=Sum('litres'))['total'] or 0
         consommation_moyenne = 0
@@ -194,7 +227,6 @@ class VehicleViewSet(viewsets.ModelViewSet):
             return Response({'error': 'date_debut et date_fin sont requis'}, 
                           status=status.HTTP_400_BAD_REQUEST)
         
-        # Récupérer toutes les activités du véhicule
         maintenances = Maintenance.objects.filter(
             vehicle=vehicle,
             date__range=[date_debut, date_fin]
@@ -216,21 +248,15 @@ class VehicleViewSet(viewsets.ModelViewSet):
             'missions': MissionSerializer(missions, many=True).data
         })
 
-
 class AssignmentViewSet(viewsets.ModelViewSet):
     queryset = Assignment.objects.all()
     serializer_class = AssignmentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-
-
-
-
 class MaintenanceViewSet(viewsets.ModelViewSet):
     queryset = Maintenance.objects.all()
     serializer_class = MaintenanceSerializer
     permission_classes = [permissions.IsAuthenticated]
-
 
 class FuelLogViewSet(viewsets.ModelViewSet):
     queryset = FuelLog.objects.all()
@@ -254,7 +280,6 @@ class FuelLogViewSet(viewsets.ModelViewSet):
                 avg=Avg('prix_litre'))['avg'] or 0
         })
 
-
 class AlertViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
@@ -265,16 +290,12 @@ class AlertViewSet(viewsets.ModelViewSet):
         return queryset
 
     def generate_alerts(self):
-        """Génère automatiquement les alertes basées sur les données du système"""
         today = timezone.now().date()
         
-        # Supprimer les anciennes alertes non résolues
         Alert.objects.filter(resolue=False).delete()
         
-        # Alertes pour les véhicules
         vehicles = Vehicle.objects.all()
         for vehicle in vehicles:
-            # Alerte pour l'assurance
             if vehicle.assurance_expiration and (vehicle.assurance_expiration - today).days <= 30:
                 Alert.objects.create(
                     vehicle=vehicle,
@@ -283,7 +304,6 @@ class AlertViewSet(viewsets.ModelViewSet):
                     niveau='warning' if (vehicle.assurance_expiration - today).days > 7 else 'critique'
                 )
             
-            # Alerte pour la visite technique
             if vehicle.visite_technique and (vehicle.visite_technique - today).days <= 30:
                 Alert.objects.create(
                     vehicle=vehicle,
@@ -292,8 +312,7 @@ class AlertViewSet(viewsets.ModelViewSet):
                     niveau='warning' if (vehicle.visite_technique - today).days > 7 else 'critique'
                 )
 
-        # Alertes pour les conducteurs
-        drivers = Driver.objects.filter(statut='actif')  # Ne prendre que les conducteurs actifs
+        drivers = Driver.objects.filter(statut='actif')
         for driver in drivers:
             if driver.date_expiration_permis:
                 days_until_expiration = (driver.date_expiration_permis - today).days
@@ -309,7 +328,6 @@ class AlertViewSet(viewsets.ModelViewSet):
                     except Exception as e:
                         print(f"Erreur lors de la création de l'alerte pour le conducteur {driver.id}: {str(e)}")
 
-        # Alertes pour les documents administratifs
         documents = DocumentAdministratif.objects.all()
         for doc in documents:
             if (doc.date_expiration - today).days <= 30:
@@ -322,13 +340,11 @@ class AlertViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def generate(self, request):
-        """Endpoint pour générer les alertes"""
         self.generate_alerts()
         return Response({'message': 'Alertes générées avec succès'})
 
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
-        """Marquer une alerte comme résolue"""
         alert = self.get_object()
         alert.resolue = True
         alert.save()
@@ -341,39 +357,123 @@ class AlertViewSet(viewsets.ModelViewSet):
             conducteur = user.profile.driver
         except Exception:
             return Response({'error': 'Conducteur non trouvé.'}, status=404)
-        # Alertes liées au conducteur
         alertes_conducteur = Alert.objects.filter(driver=conducteur, resolue=False)
-        # Véhicules affectés ou en mission future
         maintenant = timezone.now()
         vehicules_affectes = Affectation.objects.filter(driver=conducteur, statut='actif').values_list('vehicle_id', flat=True)
         vehicules_missions = Mission.objects.filter(driver=conducteur, date_depart__gte=maintenant).values_list('vehicle_id', flat=True)
         vehicules_ids = set(list(vehicules_affectes) + list(vehicules_missions))
         alertes_vehicules = Alert.objects.filter(vehicle_id__in=vehicules_ids, resolue=False)
         alertes = list(alertes_conducteur) + list(alertes_vehicules)
-        # Supprimer les doublons éventuels
         alertes = {a.id: a for a in alertes}.values()
         serializer = self.get_serializer(alertes, many=True)
         return Response(serializer.data)
 
+class IsAdminOrDriver(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.user.is_superuser or request.user.groups.filter(name='admin').exists():
+            return True
+        return Driver.objects.filter(user_profile__user=request.user).exists()
 
 class MissionViewSet(viewsets.ModelViewSet):
     queryset = Mission.objects.all()
     serializer_class = MissionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrDriver]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        driver_id = self.request.query_params.get('driver')
+
+        if self.request.user.is_superuser or self.request.user.groups.filter(name='admin').exists():
+            return queryset
+
+        if driver_id:
+            try:
+                driver = Driver.objects.get(id=driver_id)
+                queryset = queryset.filter(driver=driver)
+            except Driver.DoesNotExist:
+                queryset = queryset.none()
+        elif self.request.user.is_authenticated:
+            try:
+                driver = Driver.objects.get(user_profile__user=self.request.user)
+                queryset = queryset.filter(driver=driver)
+            except Driver.DoesNotExist:
+                queryset = queryset.none()
+        return queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        now = timezone.now()
-        for mission in queryset:
-            if mission.date_arrivee and mission.date_arrivee < now:
-                mission.statut = 'terminee'
-            elif mission.date_depart > now:
-                mission.statut = 'planifiee'
-            elif mission.date_depart <= now <= (mission.date_arrivee or now):
-                mission.statut = 'en_cours'
         serializer = self.get_serializer(queryset, many=True)
+        for mission in serializer.data:
+            logger.info(f"Mission ID: {mission['id']}, Statut: {mission['statut']}, Réponse conducteur: {mission['reponse_conducteur']}")
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        try:
+            driver = Driver.objects.get(user_profile__user=request.user)
+            missions = Mission.objects.filter(driver=driver)
+            serializer = self.get_serializer(missions, many=True)
+            return Response(serializer.data)
+        except Driver.DoesNotExist:
+            return Response({'error': 'Conducteur non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def accepter(self, request, pk=None):
+        mission = self.get_object()
+        try:
+            driver = Driver.objects.get(user_profile__user=request.user)
+            if mission.driver != driver:
+                return Response({'error': 'Vous n\'êtes pas autorisé à accepter cette mission'}, status=status.HTTP_403_FORBIDDEN)
+            if mission.reponse_conducteur != 'en_attente':
+                return Response({'error': 'Mission déjà acceptée ou refusée'}, status=status.HTTP_400_BAD_REQUEST)
+            mission.reponse_conducteur = 'acceptee'
+            mission.statut = 'acceptee'
+            mission.save()
+            logger.info(f"Mission {mission.id} acceptée: statut={mission.statut}, reponse_conducteur={mission.reponse_conducteur}")
+            return Response({'message': 'Mission acceptée'}, status=status.HTTP_200_OK)
+        except Driver.DoesNotExist:
+            return Response({'error': 'Conducteur non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def refuser(self, request, pk=None):
+        mission = self.get_object()
+        try:
+            driver = Driver.objects.get(user_profile__user=request.user)
+            if mission.driver != driver:
+                return Response({'error': 'Vous n\'êtes pas autorisé à refuser cette mission'}, status=status.HTTP_403_FORBIDDEN)
+            if mission.reponse_conducteur != 'en_attente':
+                return Response({'error': 'Mission déjà acceptée ou refusée'}, status=status.HTTP_400_BAD_REQUEST)
+            mission.reponse_conducteur = 'refusee'
+            mission.statut = 'refusee'
+            mission.save()
+            logger.info(f"Mission {mission.id} refusée: statut={mission.statut}, reponse_conducteur={mission.reponse_conducteur}")
+            return Response({'message': 'Mission refusée'}, status=status.HTTP_200_OK)
+        except Driver.DoesNotExist:
+            return Response({'error': 'Conducteur non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def terminer(self, request, pk=None):
+        mission = self.get_object()
+        try:
+            driver = Driver.objects.get(user_profile__user=request.user)
+            if mission.driver != driver:
+                return Response({'error': 'Vous n\'êtes pas autorisé à terminer cette mission'}, status=status.HTTP_403_FORBIDDEN)
+            if mission.statut not in ['acceptee', 'en_cours']:
+                return Response({'error': 'Mission non acceptée ou déjà terminée'}, status=status.HTTP_400_BAD_REQUEST)
+            mission.statut = 'terminee'
+            mission.date_arrivee = timezone.now()
+            commentaire = request.data.get('commentaire')
+            if commentaire:
+                CommentaireEcart.objects.create(
+                    mission=mission,
+                    utilisateur=request.user.profile,
+                    commentaire=commentaire
+                )
+            mission.save()
+            logger.info(f"Mission {mission.id} terminée: statut={mission.statut}, reponse_conducteur={mission.reponse_conducteur}")
+            return Response({'message': 'Mission terminée'}, status=status.HTTP_200_OK)
+        except Driver.DoesNotExist:
+            return Response({'error': 'Conducteur non trouvé'}, status=status.HTTP_404_NOT_FOUND)
 
 class ExpenseViewSet(viewsets.ModelViewSet):
     queryset = Expense.objects.all()
@@ -400,7 +500,6 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(expenses, many=True)
         return Response(serializer.data)
 
-
 class FinancialReportViewSet(viewsets.ModelViewSet):
     queryset = FinancialReport.objects.all()
     serializer_class = FinancialReportSerializer
@@ -420,7 +519,6 @@ class FinancialReportViewSet(viewsets.ModelViewSet):
         except Vehicle.DoesNotExist:
             return Response({'error': 'Vehicle not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Calculate financial data
         total_carburant = Expense.objects.filter(
             vehicle=vehicle, type='carburant',
             date__range=[date_debut, date_fin]
@@ -429,9 +527,8 @@ class FinancialReportViewSet(viewsets.ModelViewSet):
         total_entretien = Entretien.objects.filter(
             vehicle=vehicle,
             date_entretien__range=[date_debut, date_fin]
-        ).aggregate(Sum('cout'))['cout__sum'] or 0 # Assuming 'cout' field in Entretien
+        ).aggregate(Sum('cout'))['cout__sum'] or 0
 
-        # Add other expense types as needed (peage, amende, autre)
         total_peages = Expense.objects.filter(
              vehicle=vehicle, type='peage',
              date__range=[date_debut, date_fin]
@@ -447,22 +544,14 @@ class FinancialReportViewSet(viewsets.ModelViewSet):
              date__range=[date_debut, date_fin]
         ).aggregate(Sum('montant'))['montant__sum'] or 0
 
-
-        # Calculate mileage
-        # This requires tracking mileage at the start and end of the report period
-        # For simplicity, let's assume we can get min/max mileage from FuelLogs or other relevant records
-        # A more robust solution would involve dedicated mileage tracking entries
         fuel_logs_in_period = FuelLog.objects.filter(
             vehicle=vehicle,
             date__range=[date_debut, date_fin]
         ).order_by('date', 'kilometrage')
 
-        kilometrage_debut = fuel_logs_in_period.first().kilometrage if fuel_logs_in_period.exists() else vehicle.kilometrage # Approximation
-        kilometrage_fin = fuel_logs_in_period.last().kilometrage if fuel_logs_in_period.exists() else vehicle.kilometrage # Approximation
+        kilometrage_debut = fuel_logs_in_period.first().kilometrage if fuel_logs_in_period.exists() else vehicle.kilometrage
+        kilometrage_fin = fuel_logs_in_period.last().kilometrage if fuel_logs_in_period.exists() else vehicle.kilometrage
         
-        # Consider mileage from other events like Maintenance if they record it
-
-        # Calculate average consumption
         total_litres = fuel_logs_in_period.aggregate(Sum('litres'))['litres__sum'] or 0
         kilometrage_parcouru = kilometrage_fin - kilometrage_debut
         consommation_moyenne = (total_litres * 100) / kilometrage_parcouru if kilometrage_parcouru > 0 else 0
@@ -483,7 +572,6 @@ class FinancialReportViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(report)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
 
 class DocumentAdministratifViewSet(viewsets.ModelViewSet):
     queryset = DocumentAdministratif.objects.all()
@@ -510,7 +598,6 @@ class DocumentAdministratifViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(documents, many=True)
         return Response(serializer.data)
 
-
 class EntretienViewSet(viewsets.ModelViewSet):
     queryset = Entretien.objects.all()
     serializer_class = EntretienSerializer
@@ -535,7 +622,6 @@ class EntretienViewSet(viewsets.ModelViewSet):
         entretiens = Entretien.objects.filter(type_entretien=entretien_type)
         serializer = self.get_serializer(entretiens, many=True)
         return Response(serializer.data)
-
 
 class RapportViewSet(viewsets.ModelViewSet):
     queryset = Rapport.objects.all()
@@ -562,7 +648,6 @@ class RapportViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(rapports, many=True)
         return Response(serializer.data)
 
-
 class CommentaireEcartViewSet(viewsets.ModelViewSet):
     queryset = CommentaireEcart.objects.all()
     serializer_class = CommentaireEcartSerializer
@@ -577,7 +662,6 @@ class CommentaireEcartViewSet(viewsets.ModelViewSet):
         commentaires = CommentaireEcart.objects.filter(mission_id=mission_id)
         serializer = self.get_serializer(commentaires, many=True)
         return Response(serializer.data)
-
 
 class HistoriqueViewSet(viewsets.ModelViewSet):
     queryset = Historique.objects.all()
@@ -604,7 +688,6 @@ class HistoriqueViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(historiques, many=True)
         return Response(serializer.data)
 
-
 class UserInfoView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -625,7 +708,6 @@ class UserInfoView(APIView):
         }
         return Response(user_data)
 
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @csrf_exempt
@@ -644,7 +726,7 @@ def send_alert_email(request):
 
             send_mail(
                 subject=subject,
-                message='',  # Version texte vide car nous utilisons HTML
+                message='',
                 from_email=settings.EMAIL_HOST_USER,
                 recipient_list=[to_email],
                 html_message=body,
@@ -664,7 +746,6 @@ def send_alert_email(request):
         'error': 'Méthode non autorisée'
     }, status=405)
 
-
 class ManagerViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.filter(role='gestionnaire')
     serializer_class = UserProfileSerializer
@@ -678,7 +759,6 @@ class ManagerViewSet(viewsets.ModelViewSet):
         password = user_data.get('password')
         if not password:
             return Response({'error': 'Le mot de passe est requis.'}, status=400)
-        # Créer l'utilisateur
         user = User.objects.create_user(
             username=user_data.get('username'),
             email=user_data.get('email'),
@@ -686,10 +766,8 @@ class ManagerViewSet(viewsets.ModelViewSet):
             first_name=user_data.get('first_name', ''),
             last_name=user_data.get('last_name', '')
         )
-        # Ajouter au groupe gestionnaire
         group = Group.objects.get(name='gestionnaire')
         user.groups.add(group)
-        # Créer le profil
         profile = UserProfile.objects.get(user=user)
         profile.telephone = telephone
         profile.adresse = adresse
@@ -706,7 +784,6 @@ class ManagerViewSet(viewsets.ModelViewSet):
         self.perform_destroy(instance)
         user.delete()
         return Response(status=204)
-
 
 class PositionListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -729,7 +806,6 @@ class PositionListCreateAPIView(APIView):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-
 @api_view(['GET'])
 def available_vehicles(request):
     date_debut = request.GET.get('date_debut')
@@ -740,7 +816,6 @@ def available_vehicles(request):
     date_fin = parse_datetime(date_fin)
     if not date_debut or not date_fin:
         return Response({'error': 'Format de date invalide'}, status=400)
-    # Véhicules occupés sur la période
     missions = Mission.objects.filter(date_depart__lt=date_fin, date_arrivee__gt=date_debut)
     vehicules_occupes = missions.values_list('vehicle_id', flat=True)
     vehicules_dispos = Vehicle.objects.exclude(id__in=vehicules_occupes)
@@ -776,7 +851,7 @@ class LastPositionAPIView(RetrieveAPIView):
     serializer_class = PositionSerializer
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, *args, **kwargs):
+    def get(self, accomplishing, *args, **kwargs):
         driver_id = self.kwargs['driver_id']
         position = Position.objects.filter(driver_id=driver_id).order_by('-timestamp').first()
         if not position:
@@ -787,26 +862,20 @@ class LastPositionAPIView(RetrieveAPIView):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dashboard_stats(request):
-    """Endpoint pour les statistiques du dashboard"""
     try:
-        # Statistiques des véhicules
         total_vehicles = Vehicle.objects.count()
         active_vehicles = Vehicle.objects.filter(actif=True).count()
         
-        # Statistiques des conducteurs
         total_drivers = Driver.objects.count()
         active_drivers = Driver.objects.filter(statut='actif').count()
         
-        # Statistiques des missions
         total_missions = Mission.objects.count()
         pending_missions = Mission.objects.filter(statut='en_attente').count()
         active_missions = Mission.objects.filter(statut='en_cours').count()
         
-        # Statistiques des alertes
         total_alerts = Alert.objects.count()
         critical_alerts = Alert.objects.filter(niveau='critique', resolue=False).count()
         
-        # Statistiques financières (derniers 30 jours)
         from datetime import datetime, timedelta
         thirty_days_ago = datetime.now() - timedelta(days=30)
         
@@ -832,7 +901,7 @@ def dashboard_stats(request):
             },
             'alerts': {
                 'total': total_alerts,
-                'critical': critical_alerts
+                'critical Ascertainable': critical_alerts
             },
             'finances': {
                 'recent_expenses': float(total_recent_expenses),
@@ -846,9 +915,7 @@ def dashboard_stats(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def recent_activities(request):
-    """Endpoint pour les activités récentes"""
     try:
-        # Missions récentes
         recent_missions = Mission.objects.order_by('-date_depart')[:10]
         mission_data = []
         for mission in recent_missions:
@@ -862,7 +929,6 @@ def recent_activities(request):
                 'distance': mission.distance_km
             })
         
-        # Alertes récentes
         recent_alerts = Alert.objects.order_by('-date_alerte')[:10]
         alert_data = []
         for alert in recent_alerts:
@@ -876,7 +942,6 @@ def recent_activities(request):
                 'resolue': alert.resolue
             })
         
-        # Dépenses récentes
         recent_expenses = Expense.objects.order_by('-date')[:10]
         expense_data = []
         for expense in recent_expenses:
@@ -900,7 +965,6 @@ def recent_activities(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def global_search(request):
-    """Endpoint de recherche globale"""
     query = request.GET.get('q', '').strip()
     if not query or len(query) < 2:
         return Response({'error': 'La recherche doit contenir au moins 2 caractères'}, status=400)
@@ -912,7 +976,6 @@ def global_search(request):
             'missions': []
         }
         
-        # Recherche dans les véhicules
         vehicles = Vehicle.objects.filter(
             models.Q(marque__icontains=query) |
             models.Q(modele__icontains=query) |
@@ -929,7 +992,6 @@ def global_search(request):
                 'type': 'vehicle'
             })
         
-        # Recherche dans les conducteurs
         drivers = Driver.objects.filter(
             models.Q(user_profile__user__username__icontains=query) |
             models.Q(user_profile__user__email__icontains=query) |
@@ -945,7 +1007,6 @@ def global_search(request):
                 'type': 'driver'
             })
         
-        # Recherche dans les missions
         missions = Mission.objects.filter(
             models.Q(code__icontains=query) |
             models.Q(raison__icontains=query) |
@@ -968,26 +1029,19 @@ def global_search(request):
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def all_drivers_positions(request):
-    """
-    Récupère les dernières positions de tous les conducteurs avec leurs informations
-    """
-    # Récupérer tous les conducteurs avec leurs dernières positions
     drivers = Driver.objects.all()
     result = []
     
     for driver in drivers:
-        # Récupérer la dernière position
         last_position = Position.objects.filter(driver=driver).order_by('-timestamp').first()
         
-        # Déterminer si le conducteur est en ligne (position récente dans les 5 dernières minutes)
         is_online = False
         if last_position:
             time_diff = timezone.now() - last_position.timestamp
-            is_online = time_diff.total_seconds() < 300  # 5 minutes
+            is_online = time_diff.total_seconds() < 300
         
         driver_data = {
             'id': driver.id,
@@ -1005,19 +1059,14 @@ def all_drivers_positions(request):
     
     return Response(result)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def driver_trips_history(request, driver_id):
-    """
-    Récupère l'historique des trajets d'un conducteur
-    """
     try:
         driver = Driver.objects.get(id=driver_id)
     except Driver.DoesNotExist:
         return Response({'error': 'Conducteur non trouvé'}, status=404)
     
-    # Récupérer les missions du conducteur
     missions = Mission.objects.filter(driver=driver).order_by('-date_depart')
     
     trips_data = []
@@ -1031,11 +1080,93 @@ def driver_trips_history(request, driver_id):
             'date_arrivee': mission.date_arrivee,
             'statut': mission.statut,
             'distance_km': mission.distance_km,
-            'depart_latitude': mission.depart_latitude,
-            'depart_longitude': mission.depart_longitude,
-            'arrivee_latitude': mission.arrivee_latitude,
-            'arrivee_longitude': mission.arrivee_longitude,
         }
         trips_data.append(trip_data)
     
     return Response(trips_data)
+
+# -----------------------------
+# Google Places Proxy Endpoints
+# -----------------------------
+
+def _require_requests():
+    if requests is None:
+        raise RuntimeError("Le module 'requests' n'est pas installé. Ajoutez-le à requirements.txt et réinstallez.")
+
+def _google_api_key():
+    # Priorité aux variables d'environnement
+    key = os.environ.get('GOOGLE_MAPS_API_KEY') or getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
+    if not key:
+        raise RuntimeError("Clé Google Maps absente. Définissez GOOGLE_MAPS_API_KEY dans l'env ou settings.")
+    return key
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def places_autocomplete(request):
+    """Proxy pour /place/autocomplete/json afin d'éviter CORS côté Web."""
+    _require_requests()
+    key = _google_api_key()
+    query = request.GET.get('input', '').strip()
+    language = request.GET.get('language', 'fr')
+    components = request.GET.get('components', None)
+    types = request.GET.get('types', 'geocode')
+
+    if len(query) < 2:
+        return Response({'predictions': []})
+
+    params = {
+        'input': query,
+        'key': key,
+        'language': language,
+        'types': types,
+    }
+    if components:
+        params['components'] = components
+
+    url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+    r = requests.get(url, params=params, timeout=10)
+    return Response(r.json(), status=r.status_code)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def places_details(request):
+    """Proxy pour /place/details/json (retourne geometry)."""
+    _require_requests()
+    key = _google_api_key()
+    place_id = request.GET.get('place_id')
+    language = request.GET.get('language', 'fr')
+    fields = request.GET.get('fields', 'geometry')
+    if not place_id:
+        return Response({'error': 'place_id requis'}, status=400)
+    params = {
+        'place_id': place_id,
+        'key': key,
+        'language': language,
+        'fields': fields,
+    }
+    url = 'https://maps.googleapis.com/maps/api/place/details/json'
+    r = requests.get(url, params=params, timeout=10)
+    return Response(r.json(), status=r.status_code)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def places_distance(request):
+    """Proxy pour Distance Matrix."""
+    _require_requests()
+    key = _google_api_key()
+    origins = request.GET.get('origins')
+    destinations = request.GET.get('destinations')
+    language = request.GET.get('language', 'fr')
+    units = request.GET.get('units', 'metric')
+    if not origins or not destinations:
+        return Response({'error': 'origins et destinations requis'}, status=400)
+    params = {
+        'origins': origins,
+        'destinations': destinations,
+        'key': key,
+        'language': language,
+        'units': units,
+    }
+    url = 'https://maps.googleapis.com/maps/api/distancematrix/json'
+    r = requests.get(url, params=params, timeout=10)
+    return Response(r.json(), status=r.status_code)

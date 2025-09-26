@@ -1,3 +1,5 @@
+# fleet/serializers.py
+
 from rest_framework import serializers
 from .models import (
     Vehicle,
@@ -21,7 +23,6 @@ from .models import (
 from django.contrib.auth.models import User, Group
 from django.core.exceptions import ObjectDoesNotExist
 
-
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -33,7 +34,7 @@ class UserSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password", None)
 
         user = User(
-            username=email,   # <-- username forcé = email
+            username=email,
             email=email,
             first_name=validated_data.get("first_name", ""),
             last_name=validated_data.get("last_name", ""),
@@ -52,8 +53,6 @@ class UserSerializer(serializers.ModelSerializer):
             password = validated_data.pop('password')
             instance.set_password(password)
         return super().update(instance, validated_data)
-
-
 
 class UserProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer()
@@ -92,7 +91,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             user = instance.user
             if 'email' in user_data:
                 user.email = user_data['email']
-                user.username = user_data['email']  # garder synchro avec username
+                user.username = user_data['email']
             if 'first_name' in user_data:
                 user.first_name = user_data['first_name']
             if 'last_name' in user_data:
@@ -113,7 +112,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return instance
-
 
 class DriverSerializer(serializers.ModelSerializer):
     user_profile = UserProfileSerializer(read_only=True)
@@ -182,16 +180,18 @@ class DriverSerializer(serializers.ModelSerializer):
             return Driver.objects.create(user_profile=user_profile, **validated_data)
 
         else:
-            raise serializers.ValidationError("user_profile_id ou user_profile_data requis")
-
+            raise serializers.ValidationError("user Powered by xAIprofile_id ou user_profile_data requis")
 
 class VehicleSerializer(serializers.ModelSerializer):
-    consommation_moyenne = serializers.FloatField(read_only=True)
-
     class Meta:
         model = Vehicle
-        fields = '__all__'
-
+        fields = [
+            'id', 'marque', 'modele', 'type_vehicule', 'immatriculation',
+            'kilometrage', 'capacite_reservoir', 'couleur', 'prix_acquisition',
+            'numero_chassis', 'date_acquisition', 'assurance_expiration',
+            'visite_technique', 'actif', 'type_carburant', 'carte_grise',
+            'photo', 'notes', 'traccar_id'
+        ]
 
 class DocumentAdministratifSerializer(serializers.ModelSerializer):
     vehicle_details = VehicleSerializer(source='vehicle', read_only=True)
@@ -201,7 +201,6 @@ class DocumentAdministratifSerializer(serializers.ModelSerializer):
         fields = ['id', 'code', 'vehicle', 'vehicle_details', 'numero_document',
                  'type_document', 'date_emission', 'date_expiration', 'fichier']
 
-
 class EntretienSerializer(serializers.ModelSerializer):
     vehicle_details = VehicleSerializer(source='vehicle', read_only=True)
 
@@ -209,7 +208,6 @@ class EntretienSerializer(serializers.ModelSerializer):
         model = Entretien
         fields = ['id', 'code', 'vehicle', 'vehicle_details', 'type_entretien',
                  'date_entretien', 'cout', 'commentaires', 'kilometrage', 'garage']
-
 
 class AlertSerializer(serializers.ModelSerializer):
     vehicle = serializers.SerializerMethodField()
@@ -229,7 +227,6 @@ class AlertSerializer(serializers.ModelSerializer):
             return str(obj.driver)
         return None
 
-
 class AffectationSerializer(serializers.ModelSerializer):
     vehicle_details = VehicleSerializer(source='vehicle', read_only=True)
     driver_details = DriverSerializer(source='driver', read_only=True)
@@ -239,7 +236,6 @@ class AffectationSerializer(serializers.ModelSerializer):
         fields = ['id', 'code', 'vehicle', 'vehicle_details', 'driver',
                  'driver_details', 'date_debut', 'date_fin', 'statut',
                  'date_affectation', 'heure_affectation']
-
 
 class MissionSerializer(serializers.ModelSerializer):
     vehicle_details = VehicleSerializer(source='vehicle', read_only=True)
@@ -251,7 +247,9 @@ class MissionSerializer(serializers.ModelSerializer):
             'id', 'code', 'vehicle', 'vehicle_details', 'driver',
             'driver_details', 'date_depart', 'date_arrivee',
             'lieu_depart', 'lieu_arrivee', 'distance_km', 'raison',
-            'statut', 'reponse_conducteur'
+            'statut', 'reponse_conducteur',
+            'depart_latitude', 'depart_longitude',
+            'arrivee_latitude', 'arrivee_longitude'
         ]
 
     def validate(self, data):
@@ -261,7 +259,6 @@ class MissionSerializer(serializers.ModelSerializer):
         date_fin = data.get('date_arrivee')
         mission_id = self.instance.id if self.instance else None
 
-        # Vérifie le conducteur
         if driver and date_debut and date_fin:
             conflits_conducteur = Mission.objects.filter(
                 driver=driver,
@@ -273,7 +270,6 @@ class MissionSerializer(serializers.ModelSerializer):
             if conflits_conducteur.exists():
                 raise serializers.ValidationError({'driver': "Ce conducteur est déjà en mission sur cette période."})
 
-        # Vérifie le véhicule
         if vehicle and date_debut and date_fin:
             conflits_vehicule = Mission.objects.filter(
                 vehicle=vehicle,
@@ -287,7 +283,6 @@ class MissionSerializer(serializers.ModelSerializer):
 
         return data
 
-
 class RapportSerializer(serializers.ModelSerializer):
     auteur_details = UserProfileSerializer(source='auteur', read_only=True)
 
@@ -295,7 +290,6 @@ class RapportSerializer(serializers.ModelSerializer):
         model = Rapport
         fields = ['id', 'code', 'titre', 'description', 'type_rapport',
                  'date_rapport', 'auteur', 'auteur_details', 'fichier']
-
 
 class CommentaireEcartSerializer(serializers.ModelSerializer):
     mission_details = MissionSerializer(source='mission', read_only=True)
@@ -305,7 +299,6 @@ class CommentaireEcartSerializer(serializers.ModelSerializer):
         model = CommentaireEcart
         fields = ['id', 'code', 'mission', 'mission_details', 'utilisateur',
                  'utilisateur_details', 'commentaire', 'date_commentaire']
-
 
 class HistoriqueSerializer(serializers.ModelSerializer):
     vehicle_details = VehicleSerializer(source='vehicle', read_only=True)
@@ -317,24 +310,20 @@ class HistoriqueSerializer(serializers.ModelSerializer):
                  'utilisateur_details', 'evenement', 'description',
                  'date_evenement', 'heure_evenement']
 
-
 class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = '__all__'
-
 
 class MaintenanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Maintenance
         fields = '__all__'
 
-
 class ExpenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
         fields = '__all__'
-
 
 class FuelLogSerializer(serializers.ModelSerializer):
     prix_litre = serializers.DecimalField(max_digits=5, decimal_places=3, read_only=True)
@@ -345,7 +334,6 @@ class FuelLogSerializer(serializers.ModelSerializer):
         model = FuelLog
         fields = '__all__'
 
-
 class FinancialReportSerializer(serializers.ModelSerializer):
     total_depenses = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     kilometrage_total = serializers.FloatField(read_only=True)
@@ -354,7 +342,6 @@ class FinancialReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = FinancialReport
         fields = '__all__'
-
 
 class PositionSerializer(serializers.ModelSerializer):
     class Meta:

@@ -16,6 +16,11 @@ class TableauDeBordAdmin extends StatefulWidget {
 
 class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
   Map<String, dynamic> dashboardData = {};
+  List<dynamic> vehicles = [];
+  List<dynamic> drivers = [];
+  Map<String, int> vehiclesByType = {};
+  List<dynamic> recentVehicles = [];
+  List<dynamic> recentDrivers = [];
   bool isLoading = true;
   String? errorMessage;
 
@@ -43,7 +48,8 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
         return;
       }
 
-      final response = await http.get(
+      // Fetch stats
+      final statsResponse = await http.get(
         Uri.parse('http://192.168.11.243:8000/api/dashboard/stats/'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -51,15 +57,59 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
         },
       );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      // Fetch vehicles
+      final vehiclesResponse = await http.get(
+        Uri.parse('http://192.168.11.243:8000/api/vehicles/'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      // Fetch drivers
+      final driversResponse = await http.get(
+        Uri.parse('http://192.168.11.243:8000/api/drivers/'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (statsResponse.statusCode == 200 && vehiclesResponse.statusCode == 200 && driversResponse.statusCode == 200) {
+        final statsData = json.decode(statsResponse.body);
+        final vehiclesData = json.decode(vehiclesResponse.body);
+        final driversData = json.decode(driversResponse.body);
+
+        print("Données API Stats: $statsData");
+        print("Données API Vehicles: $vehiclesData");
+        print("Données API Drivers: $driversData");
+
+        // Process vehicles by type
+        vehiclesByType = <String, int>{};
+        for (var vehicle in vehiclesData is List ? vehiclesData : (vehiclesData['results'] ?? [])) {
+          final type = vehicle['type_vehicule']?.toString() ?? 'Inconnu';
+          vehiclesByType[type] = (vehiclesByType[type] ?? 0) + 1;
+        }
+
+        // Recent vehicles (last 5, sorted by id descending assuming id is creation order)
+        recentVehicles = (vehiclesData is List ? vehiclesData : (vehiclesData['results'] ?? []))
+            .take(5)
+            .toList();
+
+        // Recent drivers (last 5)
+        recentDrivers = (driversData is List ? driversData : (driversData['results'] ?? []))
+            .take(5)
+            .toList();
+
         setState(() {
-          dashboardData = data;
+          dashboardData = statsData;
+          vehicles = vehiclesData is List ? vehiclesData : (vehiclesData['results'] ?? []);
+          drivers = driversData is List ? driversData : (driversData['results'] ?? []);
           isLoading = false;
         });
       } else {
         setState(() {
-          errorMessage = 'Erreur ${response.statusCode}: ${response.reasonPhrase}';
+          errorMessage = 'Erreur lors du chargement: Stats(${statsResponse.statusCode}), Vehicles(${vehiclesResponse.statusCode}), Drivers(${driversResponse.statusCode})';
           isLoading = false;
         });
       }
@@ -80,11 +130,15 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
 
         return Scaffold(
           backgroundColor: const Color(0xFFF8F9FC),
-          drawer: isMobile ? AdminMenu() : null,
+          drawer: isMobile ? const AdminMenu() : null,
           bottomNavigationBar: isMobile ? const MobileNavigationBar() : null,
           body: Row(
             children: [
-              if (!isMobile) AdminMenu(),
+              if (!isMobile)
+                SizedBox(
+                  width: 240,
+                  child: const AdminMenu(),
+                ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -175,18 +229,10 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                   StatCard(
                                     icon: Icons.warning,
                                     label: "Alertes critiques",
-                                    value: (dashboardData['alerts']?['critical'] ?? 0).toString(),
+                                    value: (dashboardData['alerts']?['critical'] ?? dashboardData['alerts']?['critical Ascertainable'] ?? 0).toString(),
                                     subtitle: "${dashboardData['alerts']?['total'] ?? 0} total",
                                     color: const Color(0xFFFFF3E0),
                                     iconColor: const Color(0xFFF57C00),
-                                  ),
-                                  StatCard(
-                                    icon: Icons.euro,
-                                    label: "Dépenses (30j)",
-                                    value: "${(dashboardData['finances']?['recent_expenses'] ?? 0.0).toStringAsFixed(0)}€",
-                                    subtitle: "Carburant: ${(dashboardData['finances']?['recent_fuel'] ?? 0.0).toStringAsFixed(0)}€",
-                                    color: const Color(0xFFFCE4EC),
-                                    iconColor: const Color(0xFFC2185B),
                                   ),
                                 ],
                               ),
@@ -200,19 +246,20 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                           children: [
                             _quickAction(Icons.add_circle, "Ajouter véhicule",
                                 () {
-                              showDialog(
-                                  context: context,
-                                  builder: (_) => const VehiculeFormDialog());
-                            }),
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => const VehiculeFormDialog(),
+                                  );
+                                }),
                             _quickAction(Icons.person_add, "Ajouter conducteur",
                                 () {
-                              // TODO : ouvrir formulaire conducteur
-                              // Exemple: showDialog(context: context, builder: (_) => const ConducteurFormDialog());
-                            }),
+                                  // TODO : ouvrir formulaire conducteur
+                                  // Exemple: showDialog(context: context, builder: (_) => const ConducteurFormDialog());
+                                }),
                             _quickAction(Icons.assignment, "Nouvelle mission",
                                 () {
-                              // TODO : ouvrir formulaire mission
-                            }),
+                                  // TODO : ouvrir formulaire mission
+                                }),
                             _quickAction(Icons.warning, "Voir alertes", () {
                               // TODO : rediriger vers la page alertes
                             }),
@@ -221,7 +268,7 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
 
                         const SizedBox(height: 32),
 
-                        // -------- GRAPH (répartition véhicules)
+                        // -------- GRAPH (répartition véhicules par type)
                         Card(
                           elevation: 2,
                           shape: RoundedRectangleBorder(
@@ -242,29 +289,57 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                 ),
                                 const SizedBox(height: 12),
                                 SizedBox(
-                                  height: 200,
-                                  child: dashboardData['vehicles']?['by_type']?.isEmpty ?? true
-                                      ? const Center(
-                                          child: Text("Aucune donnée"))
-                                      : PieChart(
-                                          PieChartData(
-                                            sections: (dashboardData['vehicles']?['by_type'] as Map<String, int>).entries
-                                                .map(
-                                                  (e) => PieChartSectionData(
-                                                    value: e.value.toDouble(),
-                                                    title:
-                                                        '${e.key} (${e.value})',
-                                                    radius: 50,
-                                                    titleStyle: const TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.bold,
+                                  height: 300,
+                                  child: vehiclesByType.isEmpty
+                                      ? const Center(child: Text("Aucune donnée disponible"))
+                                      : BarChart(
+                                          BarChartData(
+                                            alignment: BarChartAlignment.spaceAround,
+                                            maxY: (vehiclesByType.values.reduce((a, b) => a + b) * 1.2).toDouble(),
+                                            barTouchData: BarTouchData(enabled: false),
+                                            titlesData: FlTitlesData(
+                                              show: true,
+                                              bottomTitles: AxisTitles(
+                                                sideTitles: SideTitles(
+                                                  showTitles: true,
+                                                  getTitlesWidget: (double value, TitleMeta meta) {
+                                                    final index = value.toInt();
+                                                    final keys = vehiclesByType.keys.toList();
+                                                    return index >= 0 && index < keys.length
+                                                        ? SideTitleWidget(
+                                                            axisSide: meta.axisSide,
+                                                            space: 8,
+                                                            child: Text(keys[index], style: GoogleFonts.poppins(fontSize: 12)),
+                                                          )
+                                                        : const SizedBox.shrink();
+                                                  },
+                                                  reservedSize: 30,
+                                                ),
+                                              ),
+                                              leftTitles: AxisTitles(
+                                                sideTitles: SideTitles(showTitles: true, reservedSize: 40),
+                                              ),
+                                            ),
+                                            borderData: FlBorderData(show: false),
+                                            gridData: FlGridData(show: true),
+                                            barGroups: vehiclesByType.entries.toList().asMap().entries.map((entry) {
+                                              return BarChartGroupData(
+                                                x: entry.key,
+                                                barRods: [
+                                                  BarChartRodData(
+                                                    toY: entry.value.value.toDouble(),
+                                                    color: const Color(0xFF003366),
+                                                    width: 16,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    backDrawRodData: BackgroundBarChartRodData(
+                                                      show: true,
+                                                      toY: (vehiclesByType.values.reduce((a, b) => a + b) * 1.2).toDouble(),
+                                                      color: Colors.grey[200],
                                                     ),
                                                   ),
-                                                )
-                                                .toList(),
-                                            sectionsSpace: 4,
-                                            centerSpaceRadius: 24,
+                                                ],
+                                              );
+                                            }).toList(),
                                           ),
                                         ),
                                 ),
@@ -275,7 +350,7 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
 
                         const SizedBox(height: 32),
 
-                        // -------- TABLE VEHICULES
+                        // -------- VEHICULES RECENTS
                         Card(
                           elevation: 2,
                           shape: RoundedRectangleBorder(
@@ -287,8 +362,7 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       "Véhicules récents",
@@ -302,8 +376,7 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                       onPressed: () {
                                         showDialog(
                                           context: context,
-                                          builder: (_) =>
-                                              const VehiculeFormDialog(),
+                                          builder: (_) => const VehiculeFormDialog(),
                                         );
                                       },
                                       icon: const Icon(Icons.add),
@@ -312,13 +385,34 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
                                   ],
                                 ),
                                 const SizedBox(height: 16),
-                                dashboardData['vehicles']?['recent']?.isEmpty ?? true
+                                recentVehicles.isEmpty
                                     ? const Padding(
                                         padding: EdgeInsets.all(8.0),
-                                        child: Text("Aucun véhicule trouvé."),
+                                        child: Text("Aucun véhicule récent trouvé."),
                                       )
-                                    : VehiculeTable(
-                                        vehicules: dashboardData['vehicles']?['recent'] as List<dynamic>),
+                                    : ListView.builder(
+                                        shrinkWrap: true,
+                                        physics: const NeverScrollableScrollPhysics(),
+                                        itemCount: recentVehicles.length,
+                                        itemBuilder: (context, index) {
+                                          final vehicule = recentVehicles[index];
+                                          final status = _getStatusText(vehicule);
+                                          return Card(
+                                            margin: const EdgeInsets.only(bottom: 12),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            child: ListTile(
+                                              leading: const Icon(Icons.directions_car, color: Color(0xFF003366)),
+                                              title: Text("${vehicule['marque'] ?? 'N/A'} ${vehicule['modele'] ?? ''}", style: GoogleFonts.poppins(fontSize: 14)),
+                                              subtitle: Text("Matricule: ${vehicule['immatriculation'] ?? 'N/A'}", style: GoogleFonts.poppins(fontSize: 12)),
+                                              trailing: Chip(
+                                                label: Text(status),
+                                                backgroundColor: _getStatusColor(status).withOpacity(0.2),
+                                                labelStyle: TextStyle(color: _getStatusColor(status), fontWeight: FontWeight.w500),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
                               ],
                             ),
                           ),
@@ -326,8 +420,61 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
 
                         const SizedBox(height: 32),
 
-                        // -------- LIST CONDUCTEURS
-                        _buildConducteursList(),
+                        // -------- CONDUCTEURS RECENTS
+                        Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Conducteurs récents",
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF003366),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                recentDrivers.isEmpty
+                                    ? const Text("Aucun conducteur récent trouvé.")
+                                    : ListView.builder(
+                                        shrinkWrap: true,
+                                        physics: const NeverScrollableScrollPhysics(),
+                                        itemCount: recentDrivers.length,
+                                        itemBuilder: (context, index) {
+                                          final conducteur = recentDrivers[index];
+                                          final prenom = conducteur['user_profile']?['user']?['first_name'] ?? 'N/A';
+                                          final nom = conducteur['user_profile']?['user']?['last_name'] ?? '';
+                                          final tel = conducteur['user_profile']?['telephone'] ?? "N/A";
+                                          final statut = conducteur['statut'] ?? "N/A";
+                                          return Card(
+                                            margin: const EdgeInsets.only(bottom: 12),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            child: ListTile(
+                                              leading: CircleAvatar(
+                                                backgroundColor: Colors.grey[200],
+                                                child: Text(prenom.isNotEmpty ? prenom[0] : "?", style: GoogleFonts.poppins(color: Color(0xFF003366))),
+                                              ),
+                                              title: Text("$prenom $nom", style: GoogleFonts.poppins(fontSize: 14)),
+                                              subtitle: Text("Tel: $tel", style: GoogleFonts.poppins(fontSize: 12)),
+                                              trailing: Chip(
+                                                label: Text(statut),
+                                                backgroundColor: _getStatusColor(statut).withOpacity(0.2),
+                                                labelStyle: TextStyle(color: _getStatusColor(statut), fontWeight: FontWeight.w500),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -365,74 +512,19 @@ class _TableauDeBordAdminState extends State<TableauDeBordAdmin> {
     );
   }
 
-  Widget _buildConducteursList() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Conducteurs récents",
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF003366),
-              ),
-            ),
-            const SizedBox(height: 16),
-            dashboardData['drivers']?['recent']?.isEmpty ?? true
-                ? const Text("Aucun conducteur à afficher.")
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: (dashboardData['drivers']?['recent'] as List<dynamic>)?.length ?? 0,
-                    itemBuilder: (context, index) {
-                      final conducteur = (dashboardData['drivers']?['recent'] as List<dynamic>)?[index];
-                      final prenom = conducteur['user_profile']?['user']
-                              ?['first_name'] ??
-                          '';
-                      final nom = conducteur['user_profile']?['user']
-                              ?['last_name'] ??
-                          '';
-                      final tel =
-                          conducteur['user_profile']?['telephone'] ?? "N/A";
-                      final statut = conducteur['statut'] ?? "N/A";
-
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.grey[200],
-                          child: Text(prenom.isNotEmpty ? prenom[0] : "?"),
-                        ),
-                        title: Text("$prenom $nom"),
-                        subtitle: Text(tel),
-                        trailing: Chip(
-                          label: Text(statut),
-                          backgroundColor:
-                              _getStatusColor(statut).withOpacity(0.2),
-                          labelStyle: TextStyle(
-                            color: _getStatusColor(statut),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ],
-        ),
-      ),
-    );
+  String _getStatusText(dynamic item) {
+    if (item['actif'] == true) return "En service";
+    if (item['actif'] == false) return "Inactif";
+    return "Maintenance";
   }
 
-  Color _getStatusColor(String? status) {
-    switch (status?.toLowerCase()) {
-      case "actif":
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case "en service":
         return Colors.green;
       case "inactif":
         return Colors.red;
-      case "en congé":
+      case "maintenance":
         return Colors.orange;
       default:
         return Colors.grey;
@@ -490,8 +582,7 @@ class _StatCardState extends State<StatCard> {
             Icon(widget.icon, color: widget.iconColor, size: 30),
             const SizedBox(height: 12),
             Text(widget.label,
-                style:
-                    GoogleFonts.poppins(fontSize: 12, color: widget.textColor)),
+                style: GoogleFonts.poppins(fontSize: 12, color: widget.textColor)),
             Text(widget.value,
                 style: GoogleFonts.poppins(
                   fontSize: 20,
@@ -513,78 +604,6 @@ class _StatCardState extends State<StatCard> {
   }
 }
 
-// ---------------- TABLE VEHICULES ----------------
-class VehiculeTable extends StatelessWidget {
-  final List<dynamic> vehicules;
-  const VehiculeTable({super.key, required this.vehicules});
-
-  String _getStatusText(dynamic vehicule) {
-    if (vehicule['actif'] == true) return "En service";
-    if (vehicule['actif'] == false) return "Inactif";
-    return "Maintenance";
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case "En service":
-        return Colors.green;
-      case "Inactif":
-        return Colors.red;
-      case "Maintenance":
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text("Marque")),
-            DataColumn(label: Text("Modèle")),
-            DataColumn(label: Text("Immatriculation")),
-            DataColumn(label: Text("Statut")),
-            DataColumn(label: Text("Type")),
-          ],
-          rows: vehicules.map((v) {
-            final status = _getStatusText(v);
-            return DataRow(
-              cells: [
-                DataCell(Text(v['marque'] ?? "N/A")),
-                DataCell(Text(v['modele'] ?? "N/A")),
-                DataCell(Text(v['immatriculation'] ?? "N/A")),
-                DataCell(Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(status).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(status,
-                      style: TextStyle(
-                          color: _getStatusColor(status),
-                          fontWeight: FontWeight.w500)),
-                )),
-                DataCell(Text(v['type_vehicule'] ?? "N/A")),
-              ],
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}
-
 // ---------------- MOBILE NAV BAR ----------------
 class MobileNavigationBar extends StatelessWidget {
   const MobileNavigationBar({super.key});
@@ -596,8 +615,7 @@ class MobileNavigationBar extends StatelessWidget {
       unselectedItemColor: Colors.grey,
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Tableau"),
-        BottomNavigationBarItem(
-            icon: Icon(Icons.directions_car), label: "Véhicules"),
+        BottomNavigationBarItem(icon: Icon(Icons.directions_car), label: "Véhicules"),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: "Conducteurs"),
         BottomNavigationBarItem(icon: Icon(Icons.warning), label: "Alertes"),
       ],
@@ -651,25 +669,20 @@ class _VehiculeFormDialogState extends State<VehiculeFormDialog> {
 
       // Exemple d'envoi au backend (décommenter et adapter l'URL)
       // final res = await http.post(
-      //   Uri.parse('http://localhost:8000/api/vehicles/'),
+      //   Uri.parse('http://192.168.11.243:8000/api/vehicles/'),
       //   headers: headers,
       //   body: json.encode(payload),
       // );
-      // if (res.statusCode == 201) { // ou 200 selon ton API
-      //   // succès: fermer et rafraîchir si besoin
+      // if (res.statusCode == 201) {
       //   Navigator.pop(context, true);
       // } else {
-      //   // gérer l'erreur
-      //   final err = res.body;
-      //   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $err')));
+      //   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: ${res.body}')));
       // }
 
-      // Pour l'instant on ferme la modale et renvoie true pour indiquer succès
       await Future.delayed(const Duration(milliseconds: 500));
       Navigator.pop(context, true);
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     } finally {
       setState(() => _isSubmitting = false);
     }
@@ -688,22 +701,19 @@ class _VehiculeFormDialogState extends State<VehiculeFormDialog> {
               TextFormField(
                 controller: _marqueController,
                 decoration: const InputDecoration(labelText: 'Marque'),
-                validator: (value) =>
-                    (value == null || value.isEmpty) ? 'Champ requis' : null,
+                validator: (value) => (value == null || value.isEmpty) ? 'Champ requis' : null,
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _modeleController,
                 decoration: const InputDecoration(labelText: 'Modèle'),
-                validator: (value) =>
-                    (value == null || value.isEmpty) ? 'Champ requis' : null,
+                validator: (value) => (value == null || value.isEmpty) ? 'Champ requis' : null,
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _immatriculationController,
                 decoration: const InputDecoration(labelText: 'Immatriculation'),
-                validator: (value) =>
-                    (value == null || value.isEmpty) ? 'Champ requis' : null,
+                validator: (value) => (value == null || value.isEmpty) ? 'Champ requis' : null,
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
@@ -712,8 +722,7 @@ class _VehiculeFormDialogState extends State<VehiculeFormDialog> {
                   DropdownMenuItem(value: 'Voiture', child: Text('Voiture')),
                   DropdownMenuItem(value: 'Camion', child: Text('Camion')),
                   DropdownMenuItem(value: 'Moto', child: Text('Moto')),
-                  DropdownMenuItem(
-                      value: 'Utilitaire', child: Text('Utilitaire')),
+                  DropdownMenuItem(value: 'Utilitaire', child: Text('Utilitaire')),
                 ],
                 onChanged: (value) => setState(() => _typeVehicule = value!),
                 decoration: const InputDecoration(labelText: 'Type'),

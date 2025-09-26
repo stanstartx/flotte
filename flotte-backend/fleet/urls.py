@@ -34,6 +34,9 @@ from .views import (
     LastPositionAPIView,
     all_drivers_positions,
     driver_trips_history,
+    places_autocomplete,
+    places_details,
+    places_distance,
 )
 
 router = DefaultRouter()
@@ -89,4 +92,9 @@ urlpatterns = [
     
     # Endpoint de recherche globale
     path('search/', views.global_search, name='global_search'),
+
+    # Proxy Google Places
+    path('places/autocomplete/', places_autocomplete, name='places_autocomplete'),
+    path('places/details/', places_details, name='places_details'),
+    path('places/distance/', places_distance, name='places_distance'),
 ]

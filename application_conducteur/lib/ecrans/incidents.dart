@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:application_conducteur/widgets/menu.dart';
+import 'package:application_conducteur/services/alert_service.dart';
 import 'package:intl/intl.dart';
 
 class IncidentsPage extends StatefulWidget {
@@ -24,56 +25,60 @@ class _IncidentsPageState extends State<IncidentsPage> {
     'Ford Ranger',
   ];
 
-  final List<Map<String, String>> incidents = [
-    {
-      'vehicule': 'Toyota Hilux',
-      'type': 'Panne moteur',
-      'date': '01/09/2025',
-      'heure': '08:45',
-      'statut': 'Non résolu',
-      'commentaires': 'Le moteur ne démarre pas.',
-    },
-    {
-      'vehicule': 'Toyota Hilux',
-      'type': 'Crevaison',
-      'date': '01/09/2025',
-      'heure': '12:00',
-      'statut': 'Résolu',
-      'commentaires': 'Changement de pneu effectué.',
-    },
-    {
-      'vehicule': 'Nissan Navara',
-      'type': 'Accident léger',
-      'date': '30/08/2025',
-      'heure': '14:30',
-      'statut': 'Résolu',
-      'commentaires': 'Rayure sur portière.',
-    },
-    {
-      'vehicule': 'Ford Ranger',
-      'type': 'Retard livraison',
-      'date': '29/08/2025',
-      'heure': '10:15',
-      'statut': 'Non résolu',
-      'commentaires': 'Traffic dense.',
-    },
-    {
-      'vehicule': 'Ford ',
-      'type': 'Defaut de materielle',
-      'date': '28/08/2025',
-      'heure': '10:15',
-      'statut': 'Non résolu',
-      'commentaires': 'Traffic dense.',
-    },
-    {
-      'vehicule': 'Mercedes',
-      'type': 'Retard livraison',
-      'date': '19/08/2025',
-      'heure': '10:15',
-      'statut': 'Non résolu',
-      'commentaires': 'Traffic dense.',
-    },
-  ];
+  List<Map<String, String>> incidents = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchIncidents();
+  }
+
+  Future<void> _fetchIncidents() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      // On réutilise les alertes de type incident si l'API dédiée n'existe pas
+      final data = await AlertService.fetchAlerts();
+      final mapped = data.where((a) {
+        final type = (a['type'] ?? a['category'] ?? '').toString().toLowerCase();
+        return type.contains('incident') || type.contains('accident') || type.contains('panne');
+      }).map<Map<String, String>>((a) {
+        String vehicule = (a['vehicule'] ?? a['vehicle'] ?? '').toString();
+        String type = (a['type'] ?? 'Incident').toString();
+        String statut = (a['statut'] ?? a['status'] ?? '').toString();
+        String commentaires = (a['message'] ?? a['detail'] ?? '').toString();
+        // dates
+        String date = '';
+        String heure = '';
+        final raw = a['date'] ?? a['created_at'] ?? a['timestamp'];
+        DateTime dt = DateTime.now();
+        if (raw is String) dt = DateTime.tryParse(raw) ?? dt;
+        date = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+        heure = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        return {
+          'vehicule': vehicule,
+          'type': type,
+          'date': date,
+          'heure': heure,
+          'statut': statut.isEmpty ? '—' : statut,
+          'commentaires': commentaires,
+        };
+      }).toList();
+      setState(() {
+        incidents = mapped;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
 
   List<Map<String, String>> get filteredIncidents {
     final today = DateTime(2025, 9, 1);
@@ -116,7 +121,20 @@ class _IncidentsPageState extends State<IncidentsPage> {
                 ),
               )
               : null,
-      body: Row(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Erreur: $_error', style: GoogleFonts.poppins(color: Colors.red)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(onPressed: _fetchIncidents, child: const Text('Réessayer')),
+                    ],
+                  ),
+                )
+              : Row(
         children: [
           if (!isMobile) const Menu(),
           Expanded(

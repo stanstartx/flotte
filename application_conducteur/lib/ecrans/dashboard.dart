@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:application_conducteur/services/position_sender_service.dart';
 import 'package:application_conducteur/widgets/google_maps_widget.dart';
+import 'package:application_conducteur/services/stats_service.dart';
+import 'package:application_conducteur/services/mission_service.dart';
+import 'package:application_conducteur/services/profile_service.dart';
 
 // Palette de couleurs
 const Color kGreenDark = Color(0xFF14532D);
@@ -17,63 +20,80 @@ const Color kGreyText = Color(0xFF64748B);
 const Color kBlack = Color(0xFF1E293B);
 const Color kWhite = Colors.white;
 
-class TableauDeBord extends StatelessWidget {
+class TableauDeBord extends StatefulWidget {
   const TableauDeBord({super.key});
+
+  @override
+  State<TableauDeBord> createState() => _TableauDeBordState();
+}
+
+class _TableauDeBordState extends State<TableauDeBord> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic> _stats = {};
+  List<Map<String, dynamic>> _missions = [];
+  Map<String, String?> _conducteur = {'nom': '—', 'avatar': null};
+  List<String> _notifications = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        StatsService.fetchDashboardStats(),
+        MissionService.fetchMissions(),
+        ProfileService.fetchMyProfile(),
+      ]);
+
+      final stats = results[0] as Map<String, dynamic>;
+      final missions = (results[1] as List<Map<String, dynamic>>).take(5).toList();
+      final profile = results[2] as Map<String, dynamic>;
+
+      final conducteurNom = (profile['full_name'] ?? profile['name'] ?? profile['user']?['username'] ?? 'Conducteur').toString();
+      final avatar = (profile['avatar'] ?? profile['photo_url'] ?? profile['photo'])?.toString();
+
+      final notifications = <String>[];
+      if (stats['notifications'] is List) {
+        notifications.addAll((stats['notifications'] as List).map((e) => e.toString()));
+      }
+
+      setState(() {
+        _stats = stats;
+        _missions = missions;
+        _conducteur = {'nom': conducteurNom, 'avatar': avatar};
+        _notifications = notifications;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
     final positionSender = Provider.of<PositionSenderService>(context);
 
-    // Conducteur
-    final Map<String, String?> conducteur = {
-      'nom': 'Jean Kouassi',
-      'avatar': null, // Mettre une URL si disponible
-    };
-
-    // Stats
+    final conducteur = _conducteur;
     final stats = [
-      {'label': 'À faire', 'count': 2, 'color': kBlue},
-      {'label': 'Acceptées', 'count': 1, 'color': kGreen},
-      {'label': 'Refusées', 'count': 0, 'color': kRed},
-      {'label': 'Terminées', 'count': 5, 'color': kGreyText},
+      {'label': 'À faire', 'count': (_stats['missions_a_faire'] ?? _stats['a_faire'] ?? 0) as int, 'color': kBlue},
+      {'label': 'Acceptées', 'count': (_stats['missions_acceptees'] ?? _stats['acceptees'] ?? 0) as int, 'color': kGreen},
+      {'label': 'Refusées', 'count': (_stats['missions_refusees'] ?? _stats['refusees'] ?? 0) as int, 'color': kRed},
+      {'label': 'Terminées', 'count': (_stats['missions_terminees'] ?? _stats['terminees'] ?? 0) as int, 'color': kGreyText},
     ];
-
-    // Notifications
-    final notifications = [
-      "🕘 Arrivez à 08h45 pour votre première mission.",
-      "🛠 Prochain entretien dans 3 jours.",
-    ];
-
-    // Missions
-    final missions = [
-      {
-        'trajet': 'Abobo → Plateau',
-        'date': 'Aujourd\'hui',
-        'heure': '09h00',
-        'statut': 'À faire',
-        'vehicule': {
-          'marque': 'Toyota Hilux',
-          'immatriculation': 'AB-1234-ZZ',
-          'carburant': '70%',
-          'kilometrage': '84 230 km',
-          'prochainEntretien': '21 Juin 2025',
-        },
-      },
-      {
-        'trajet': 'Cocody → Treichville',
-        'date': 'Hier',
-        'heure': '14h30',
-        'statut': 'Terminée',
-        'vehicule': {
-          'marque': 'Nissan Navara',
-          'immatriculation': 'CD-5678-ZZ',
-          'carburant': '50%',
-          'kilometrage': '56 780 km',
-          'prochainEntretien': '30 Juin 2025',
-        },
-      },
-    ];
+    final notifications = _notifications;
+    final missions = _missions;
 
     return Scaffold(
       backgroundColor: kWhite,
@@ -116,7 +136,20 @@ class TableauDeBord extends StatelessWidget {
               )
               : null,
       drawer: isMobile ? const Menu() : null,
-      body: Row(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Erreur: $_error', style: GoogleFonts.poppins(color: kRed)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(onPressed: _loadData, child: const Text('Réessayer')),
+                    ],
+                  ),
+                )
+              : Row(
         children: [
           if (!isMobile) const Menu(),
           Expanded(

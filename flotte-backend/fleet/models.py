@@ -1,3 +1,5 @@
+# fleet/models.py
+
 from django.db import models
 from django.contrib.auth.models import User, Group
 from django.db.models.signals import post_save
@@ -31,32 +33,35 @@ def create_user_profile(sender, instance, created, **kwargs):
 def save_user_profile(sender, instance, **kwargs):
     instance.profile.save()
 
-# @receiver(post_save, sender=UserProfile)
-# def create_driver_for_conducteur(sender, instance, created, **kwargs):
-#     if instance.role == 'conducteur':
-#         from .models import Driver
-#         if not hasattr(instance, 'driver'):
-#             # Crée un Driver minimal si il n'existe pas déjà
-#             Driver.objects.create(user_profile=instance, numero_permis=f"AUTO-{instance.user.id}")
-
 class Vehicle(models.Model):
+    TYPE_CARBURANT_CHOICES = (
+        ('essence', 'Essence'),
+        ('diesel', 'Diesel'),
+        ('electrique', 'Électrique'),
+        ('hybride', 'Hybride'),
+        ('autre', 'Autre'),
+    )
     marque = models.CharField(max_length=100)
     modele = models.CharField(max_length=100)
     immatriculation = models.CharField(max_length=20, unique=True)
     kilometrage = models.FloatField()
-    assurance_expiration = models.DateField()
-    visite_technique = models.DateField()
+    assurance_expiration = models.DateField(null=True, blank=True)
+    visite_technique = models.DateField(null=True, blank=True)
     carte_grise = models.FileField(upload_to='docs/', null=True, blank=True)
     actif = models.BooleanField(default=True)
-    type_vehicule = models.CharField(max_length=50, choices=[
-        ('SUV', 'SUV'),
-        ('Berline', 'Berline'),
-        ('Break', 'Break'),
-        ('Citadine', 'Citadine'),
-        ('4x4', '4x4'),
-        ('Camion', 'Camion'),
-        ('Camionnette', 'Camionnette')
-    ], default='SUV')
+    type_vehicule = models.CharField(
+        max_length=50,
+        choices=[
+            ('SUV', 'SUV'),
+            ('Berline', 'Berline'),
+            ('Break', 'Break'),
+            ('Citadine', 'Citadine'),
+            ('4x4', '4x4'),
+            ('Camion', 'Camion'),
+            ('Camionnette', 'Camionnette')
+        ],
+        default='SUV'
+    )
     capacite_reservoir = models.FloatField(default=0)
     date_acquisition = models.DateField(null=True, blank=True)
     prix_acquisition = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -64,7 +69,6 @@ class Vehicle(models.Model):
     couleur = models.CharField(max_length=50, null=True, blank=True)
     photo = models.ImageField(upload_to='vehicles/', null=True, blank=True)
     notes = models.TextField(blank=True)
-# Ajoute cette ligne pour le champ Traccar :
     traccar_id = models.CharField(
         max_length=32,
         unique=True,
@@ -72,23 +76,27 @@ class Vehicle(models.Model):
         blank=True,
         help_text="Identifiant Traccar (ex: 960049)"
     )
+    type_carburant = models.CharField(
+        max_length=20,
+        choices=TYPE_CARBURANT_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Type de carburant du véhicule"
+    )
+
     def __str__(self):
         return f"{self.marque} {self.modele} - {self.immatriculation}"
 
     @property
     def consommation_moyenne(self):
-        """Calcule la consommation moyenne en L/100km"""
         pleins = FuelLog.objects.filter(vehicle=self).order_by('date')
         if len(pleins) < 2:
             return 0
-        
         total_km = pleins.last().kilometrage - pleins.first().kilometrage
         total_litres = sum(plein.litres for plein in pleins)
-        
         if total_km == 0:
             return 0
         return (total_litres * 100) / total_km
-
 
 class Driver(models.Model):
     user_profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE, related_name='driver')
@@ -121,7 +129,6 @@ def add_driver_to_conducteur_group(sender, instance, created, **kwargs):
         conducteur_group, _ = Group.objects.get_or_create(name='conducteur')
         user.groups.add(conducteur_group)
 
-
 class Assignment(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
     driver = models.ForeignKey(Driver, on_delete=models.CASCADE)
@@ -133,7 +140,6 @@ class Assignment(models.Model):
     def __str__(self):
         return f"{self.vehicle} ➝ {self.driver} ({self.mission})"
 
-
 class Maintenance(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
     type_entretien = models.CharField(max_length=100)
@@ -143,7 +149,6 @@ class Maintenance(models.Model):
 
     def __str__(self):
         return f"{self.vehicle} - {self.type_entretien} ({self.date})"
-
 
 class Expense(models.Model):
     TYPE_CHOICES = [
@@ -161,11 +166,10 @@ class Expense(models.Model):
     date = models.DateField()
     description = models.TextField()
     justificatif = models.FileField(upload_to='expenses/', null=True, blank=True)
-    kilometrage = models.FloatField(null=True, blank=True)  # Pour le carburant
+    kilometrage = models.FloatField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.vehicle} - {self.type} ({self.date})"
-
 
 class FuelLog(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
@@ -182,11 +186,9 @@ class FuelLog(models.Model):
         return f"{self.vehicle} - {self.litres}L le {self.date}"
 
     def save(self, *args, **kwargs):
-        # Calcul automatique du prix au litre
         if self.litres > 0:
             self.prix_litre = self.cout / self.litres
         super().save(*args, **kwargs)
-
 
 class Alert(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
@@ -215,7 +217,6 @@ class Alert(models.Model):
             return f"{self.type_alerte} - {self.driver}"
         return f"{self.type_alerte} - {self.code}"
 
-
 class Mission(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
@@ -224,6 +225,10 @@ class Mission(models.Model):
     date_arrivee = models.DateTimeField(null=True, blank=True)
     lieu_depart = models.CharField(max_length=255, default='')
     lieu_arrivee = models.CharField(max_length=255, default='')
+    depart_latitude = models.FloatField(null=True, blank=True)
+    depart_longitude = models.FloatField(null=True, blank=True)
+    arrivee_latitude = models.FloatField(null=True, blank=True)
+    arrivee_longitude = models.FloatField(null=True, blank=True)
     distance_km = models.FloatField(default=0)
     raison = models.TextField(default='')
     statut = models.CharField(
@@ -251,7 +256,6 @@ class Mission(models.Model):
     def __str__(self):
         return f"{self.raison} ({self.date_depart.date()})"
 
-
 class FinancialReport(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
     date_debut = models.DateField()
@@ -277,7 +281,6 @@ class FinancialReport(models.Model):
     def kilometrage_total(self):
         return self.kilometrage_fin - self.kilometrage_debut
 
-
 class DocumentAdministratif(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='documents')
@@ -294,7 +297,6 @@ class DocumentAdministratif(models.Model):
 
     def __str__(self):
         return f"{self.type_document} - {self.vehicle}"
-
 
 class Entretien(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
@@ -314,7 +316,6 @@ class Entretien(models.Model):
     def __str__(self):
         return f"{self.type_entretien} - {self.vehicle} ({self.date_entretien})"
 
-
 class Affectation(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
@@ -330,7 +331,6 @@ class Affectation(models.Model):
 
     def __str__(self):
         return f"{self.vehicle} ➝ {self.driver} ({self.date_debut})"
-
 
 class Rapport(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
@@ -348,7 +348,6 @@ class Rapport(models.Model):
     def __str__(self):
         return f"{self.titre} ({self.date_rapport})"
 
-
 class CommentaireEcart(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
     mission = models.ForeignKey(Mission, on_delete=models.CASCADE)
@@ -358,7 +357,6 @@ class CommentaireEcart(models.Model):
 
     def __str__(self):
         return f"Commentaire sur {self.mission} par {self.utilisateur}"
-
 
 class Historique(models.Model):
     code = models.CharField(max_length=8, default=generate_code, unique=True)
@@ -376,7 +374,6 @@ class Historique(models.Model):
     def __str__(self):
         return f"{self.evenement} - {self.vehicle} ({self.date_evenement})"
 
-
 class VehiclePosition(models.Model):
     vehicle = models.ForeignKey('Vehicle', on_delete=models.CASCADE, related_name='positions')
     latitude = models.DecimalField(max_digits=9, decimal_places=6)
@@ -392,7 +389,6 @@ class VehiclePosition(models.Model):
 
     def __str__(self):
         return f"{self.vehicle} - {self.timestamp}"
-
 
 class Position(models.Model):
     driver = models.ForeignKey(Driver, on_delete=models.CASCADE, related_name='positions')
